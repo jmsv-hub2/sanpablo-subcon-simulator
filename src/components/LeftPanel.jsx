@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react'
-import { ZONES, TOTAL_TABLES, TOTAL_MWP } from '../data.js'
+import { ZONES, TOTAL_TABLES, TOTAL_MWP, TOTAL_BY_ZONE } from '../data.js'
+
+const MWP_PER_TABLE = TOTAL_MWP / TOTAL_TABLES
 
 function Section({ title, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -13,9 +15,20 @@ function Section({ title, children, defaultOpen = true }) {
   )
 }
 
+// ── Mode toggle ─────────────────────────────────────────────────────────────
+
+function ModeBar({ value, onChange }) {
+  return (
+    <div className="modebar">
+      <label><input type="radio" name="inputMode" value="general" checked={value === 'general'} onChange={() => onChange('general')} /> General</label>
+      <label><input type="radio" name="inputMode" value="perSub"  checked={value === 'perSub'}  onChange={() => onChange('perSub')}  /> Per subcontractor</label>
+    </div>
+  )
+}
+
 // ── Subcontractors ──────────────────────────────────────────────────────────
 
-function SubsList({ subsConfig, setSubsConfig, prodMode }) {
+function SubsList({ subsConfig, setSubsConfig, inputMode }) {
   const [showInactive, setShowInactive] = useState(false)
   const active   = subsConfig.filter(s => s.selected)
   const inactive = subsConfig.filter(s => !s.selected)
@@ -29,27 +42,27 @@ function SubsList({ subsConfig, setSubsConfig, prodMode }) {
 
   return (
     <div className="card">
-      {/* header */}
-      <div className={`sub-row${prodMode === 'common' ? ' common-mode' : ''}`} style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11 }}>
-        <div /><div>Sub</div><div>Manpower</div>
-        {prodMode === 'perSub' && <><div>MS r.</div><div>PV r.</div></>}
+      {/* header — only show rate columns in perSub mode */}
+      <div className={`sub-row ${inputMode === 'perSub' ? 'persub-mode' : 'general-sub-mode'}`}
+        style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11 }}>
+        <div /><div>Sub</div>
+        {inputMode === 'perSub' && <><div>Workers</div><div>MS r.</div><div>PV r.</div></>}
         <div title="PV only">PV only</div>
       </div>
 
-      {active.map((s, _) => {
+      {active.map(s => {
         const idx = subsConfig.indexOf(s)
         return (
-          <div key={s.name} className={`sub-row${prodMode === 'common' ? ' common-mode' : ''}`}>
+          <div key={s.name} className={`sub-row ${inputMode === 'perSub' ? 'persub-mode' : 'general-sub-mode'}`}>
             <input type="checkbox" checked onChange={() => toggle(idx)} />
             <div className="sub-name"><span className="dot" style={{ background: s.color }} />{s.name}</div>
-            <input type="number" min={0} value={s.workers} onChange={e => update(idx, 'workers', +e.target.value)} />
-            {prodMode === 'perSub' && <>
+            {inputMode === 'perSub' && <>
+              <input type="number" min={0} value={s.workers} onChange={e => update(idx, 'workers', +e.target.value)} />
               <input type="number" min={0} step={0.01} value={s.prodMs} onChange={e => update(idx, 'prodMs', +e.target.value)} />
               <input type="number" min={0} step={0.01} value={s.prodPv} onChange={e => update(idx, 'prodPv', +e.target.value)} />
             </>}
             <div className="pvonly">
-              <input type="checkbox" checked={s.pvOnly} onChange={e => update(idx, 'pvOnly', e.target.checked)}
-                title="Only installs PV on tables that already have MS done" />
+              <input type="checkbox" checked={s.pvOnly} onChange={e => update(idx, 'pvOnly', e.target.checked)} title="Only installs PV on tables that already have MS done" />
             </div>
           </div>
         )
@@ -58,7 +71,7 @@ function SubsList({ subsConfig, setSubsConfig, prodMode }) {
       {inactive.length > 0 && (
         <>
           <div className={`collapsible-head${showInactive ? ' open' : ''}`} onClick={() => setShowInactive(o => !o)}>
-            <span className="arrow">▸</span> Inactive subcontractors ({inactive.length})
+            <span className="arrow">▸</span> Inactive ({inactive.length})
           </div>
           {showInactive && inactive.map(s => {
             const idx = subsConfig.indexOf(s)
@@ -75,7 +88,7 @@ function SubsList({ subsConfig, setSubsConfig, prodMode }) {
   )
 }
 
-// ── Zone priority (drag-and-drop) ───────────────────────────────────────────
+// ── Zone priority ────────────────────────────────────────────────────────────
 
 function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresholds }) {
   const dragIdx = useRef(null)
@@ -96,18 +109,22 @@ function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresh
 
   return (
     <div>
-      {zonePriority.map((z, i) => (
-        <div key={z} className="zone-row"
-          draggable onDragStart={() => onDragStart(i)} onDragOver={e => onDragOver(e, i)} onDragEnd={onDragEnd}>
-          <span className="grip">⠿</span>
-          <span className="zn">#{i + 1}</span>
-          <span style={{ flex: 1 }}>MVPS {z}</span>
-          <input className="vre" type="number" min={1} max={100} value={zoneThresholds[z] ?? 100}
-            onChange={e => setZoneThresholds(prev => ({ ...prev, [z]: +e.target.value }))}
-            title="VRE threshold %" />
-          <span className="small">%</span>
-        </div>
-      ))}
+      {zonePriority.map((z, i) => {
+        const mwp = (TOTAL_BY_ZONE[z] * MWP_PER_TABLE).toFixed(2)
+        return (
+          <div key={z} className="zone-row"
+            draggable onDragStart={() => onDragStart(i)} onDragOver={e => onDragOver(e, i)} onDragEnd={onDragEnd}>
+            <span className="grip">⠿</span>
+            <span className="zn">#{i + 1}</span>
+            <span style={{ flex: 1 }}>MVPS {z}</span>
+            <span className="small" style={{ color: 'var(--muted)', marginRight: 4 }}>{mwp} MW</span>
+            <input className="vre" type="number" min={1} max={100} value={zoneThresholds[z] ?? 100}
+              onChange={e => setZoneThresholds(prev => ({ ...prev, [z]: +e.target.value }))}
+              title="VRE threshold %" />
+            <span className="small">%</span>
+          </div>
+        )
+      })}
       <div className="small" style={{ marginTop: 4 }}>Drag to reorder · % = VRE test threshold</div>
     </div>
   )
@@ -115,26 +132,43 @@ function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresh
 
 // ── Workforce calendar ──────────────────────────────────────────────────────
 
-function WorkforceCalendar({ activeSubs, globalDeadline, workforceOverrides, setWorkforceOverrides, today }) {
+function WorkforceCalendar({ inputMode, activeSubs, globalDeadline, generalCalOverrides, setGeneralCalOverrides, perSubCalOverrides, setPerSubCalOverrides, today }) {
   const days = []
-  const start = new Date(today)
-  const end   = new Date(globalDeadline)
-  const MAX = 365
-  for (let d = new Date(start), i = 0; d <= end && i < MAX; d.setDate(d.getDate() + 1), i++) {
+  const end = new Date(globalDeadline)
+  for (let d = new Date(today), i = 0; d <= end && i < 365; d.setDate(d.getDate() + 1), i++) {
     days.push(d.toISOString().slice(0, 10))
   }
 
-  function setOverride(subName, dateStr, val) {
-    const key = `${subName}|${dateStr}`
-    setWorkforceOverrides(prev => {
-      const next = { ...prev }
-      if (val === '' || val === null) { delete next[key] } else { next[key] = +val }
-      return next
-    })
+  if (inputMode === 'general') {
+    return (
+      <div id="calWrap">
+        <table className="cal">
+          <thead><tr><th>Date</th><th>Workers (all crews)</th></tr></thead>
+          <tbody>
+            {days.map(date => (
+              <tr key={date}>
+                <td>{date}</td>
+                <td>
+                  <input type="number" min={0}
+                    value={generalCalOverrides[date] !== undefined ? generalCalOverrides[date] : ''}
+                    placeholder="—"
+                    onChange={e => setGeneralCalOverrides(prev => {
+                      const next = { ...prev }
+                      if (e.target.value === '') delete next[date]
+                      else next[date] = +e.target.value
+                      return next
+                    })} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
   }
 
+  // per-sub mode
   if (activeSubs.length === 0) return <div className="small muted">No active subcontractors.</div>
-
   return (
     <div id="calWrap">
       <table className="cal">
@@ -145,17 +179,22 @@ function WorkforceCalendar({ activeSubs, globalDeadline, workforceOverrides, set
           </tr>
         </thead>
         <tbody>
-          {days.map(dateStr => (
-            <tr key={dateStr}>
-              <td>{dateStr}</td>
+          {days.map(date => (
+            <tr key={date}>
+              <td>{date}</td>
               {activeSubs.map(s => {
-                const key = `${s.name}|${dateStr}`
-                const val = workforceOverrides[key]
+                const key = `${s.name}|${date}`
                 return (
                   <td key={s.name}>
-                    <input type="number" min={0} placeholder={s.workers}
-                      value={val !== undefined ? val : ''}
-                      onChange={e => setOverride(s.name, dateStr, e.target.value === '' ? null : e.target.value)} />
+                    <input type="number" min={0}
+                      value={perSubCalOverrides[key] !== undefined ? perSubCalOverrides[key] : ''}
+                      placeholder={s.workers}
+                      onChange={e => setPerSubCalOverrides(prev => {
+                        const next = { ...prev }
+                        if (e.target.value === '') delete next[key]
+                        else next[key] = +e.target.value
+                        return next
+                      })} />
                   </td>
                 )
               })}
@@ -167,89 +206,92 @@ function WorkforceCalendar({ activeSubs, globalDeadline, workforceOverrides, set
   )
 }
 
-// ── Main left panel ─────────────────────────────────────────────────────────
+// ── Main left panel ──────────────────────────────────────────────────────────
 
 export default function LeftPanel({
-  prodMode, setProdMode, commonMs, setCommonMs, commonPv, setCommonPv,
+  inputMode, setInputMode,
+  generalWorkers, setGeneralWorkers, generalRate, setGeneralRate,
   subsConfig, setSubsConfig,
   zonePriority, setZonePriority, zoneThresholds, setZoneThresholds,
   globalDeadline, setGlobalDeadline, targetPct, setTargetPct,
-  workforceOverrides, setWorkforceOverrides,
+  generalCalOverrides, setGeneralCalOverrides,
+  perSubCalOverrides, setPerSubCalOverrides,
   activeSubs, onRun, simReady, simDays, today,
 }) {
   const tPct = Math.max(1, Math.min(100, targetPct))
   const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
   const targetMwp    = (targetTables * TOTAL_MWP / TOTAL_TABLES).toFixed(2)
 
-  function handleProdModeChange(mode) {
+  function handleModeChange(mode) {
     if (mode === 'perSub') {
-      setSubsConfig(prev => prev.map(s => ({ ...s, prodMs: commonMs, prodPv: commonPv })))
+      // Copy general values into each sub's fields when switching
+      setSubsConfig(prev => prev.map(s => ({ ...s, workers: generalWorkers, prodMs: generalRate, prodPv: generalRate })))
     }
-    setProdMode(mode)
+    setInputMode(mode)
   }
 
   return (
     <div className="col">
       <h1>San Pablo Solar</h1>
-      <div className="small">Subcontractor allocation simulator — MS → PV pipeline</div>
+      <div className="small">Subcontractor allocation simulator</div>
 
-      <Section title="Productivity mode">
-        <div className="modebar">
-          <label><input type="radio" name="prodMode" value="common" checked={prodMode === 'common'} onChange={() => handleProdModeChange('common')} /> Common rate</label>
-          <label><input type="radio" name="prodMode" value="perSub" checked={prodMode === 'perSub'} onChange={() => handleProdModeChange('perSub')} /> Per subcontractor</label>
-        </div>
-        {prodMode === 'common' && (
+      <Section title="Manpower & productivity">
+        <ModeBar value={inputMode} onChange={handleModeChange} />
+        {inputMode === 'general' ? (
           <div className="card">
-            <div className="sub-row common-mode" style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11 }}>
-              <div /><div>Rate (tables/person/day)</div><div />
-            </div>
-            <div className="sub-row common-mode">
-              <div />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input type="number" min={0} step={0.01} value={commonMs} onChange={e => setCommonMs(+e.target.value)} title="MS rate" />
-                <input type="number" min={0} step={0.01} value={commonPv} onChange={e => setCommonPv(+e.target.value)} title="PV rate" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
+              <div>
+                <div className="small" style={{ marginBottom: 3 }}>Manpower (workers)</div>
+                <input type="number" min={0} value={generalWorkers} onChange={e => setGeneralWorkers(+e.target.value)} />
               </div>
-              <div />
+              <div>
+                <div className="small" style={{ marginBottom: 3 }}>Rate (tables/person/day)</div>
+                <input type="number" min={0} step={0.01} value={generalRate} onChange={e => setGeneralRate(+e.target.value)} />
+              </div>
             </div>
-            <div className="small">Left: MS rate · Right: PV rate — applies to all active subs.</div>
+            <div className="small" style={{ marginTop: 6 }}>Applied equally to all active subcontractors.</div>
+            <div style={{ marginTop: 10 }}>
+              <div className="small" style={{ marginBottom: 4, color: 'var(--muted)' }}>Active subcontractors</div>
+              <SubsList subsConfig={subsConfig} setSubsConfig={setSubsConfig} inputMode="general" />
+            </div>
           </div>
+        ) : (
+          <SubsList subsConfig={subsConfig} setSubsConfig={setSubsConfig} inputMode="perSub" />
         )}
       </Section>
 
-      <Section title="Active subcontractors">
-        <SubsList subsConfig={subsConfig} setSubsConfig={setSubsConfig} prodMode={prodMode} />
-      </Section>
-
-      <Section title="MVPS priority & VRE test threshold">
+      <Section title="MVPS priority & VRE threshold">
         <ZoneList zonePriority={zonePriority} setZonePriority={setZonePriority}
           zoneThresholds={zoneThresholds} setZoneThresholds={setZoneThresholds} />
       </Section>
 
       <Section title="Deadline & target">
         <div className="deadline-row">
-          <div>Project completion deadline</div>
+          <div>Completion deadline</div>
           <input type="date" value={globalDeadline} onChange={e => setGlobalDeadline(e.target.value)} />
         </div>
         <div className="deadline-row">
-          <div>Target % of park to complete</div>
+          <div>Target % of park</div>
           <input type="number" min={1} max={100} value={targetPct} style={{ width: 60 }}
             onChange={e => setTargetPct(Math.max(1, Math.min(100, +e.target.value)))} />
         </div>
-        <div className="small" style={{ marginTop: 2 }}>
-          {targetTables.toLocaleString()} tables · {targetMwp} MWp out of {TOTAL_TABLES.toLocaleString()} / {TOTAL_MWP} MWp
-        </div>
+        <div className="small">{targetTables.toLocaleString()} tables · {targetMwp} MWp of {TOTAL_MWP} MWp</div>
       </Section>
 
       <Section title="Daily workforce calendar" defaultOpen={false}>
-        <div className="small" style={{ marginBottom: 6 }}>
-          Override worker counts per sub per day. Leave blank to use the base value.
-        </div>
-        <WorkforceCalendar activeSubs={activeSubs} globalDeadline={globalDeadline}
-          workforceOverrides={workforceOverrides} setWorkforceOverrides={setWorkforceOverrides} today={today} />
+        <ModeBar value={inputMode} onChange={handleModeChange} />
+        <div className="small" style={{ marginBottom: 6 }}>Leave blank to use base value.</div>
+        <WorkforceCalendar
+          inputMode={inputMode} activeSubs={activeSubs}
+          globalDeadline={globalDeadline}
+          generalCalOverrides={generalCalOverrides} setGeneralCalOverrides={setGeneralCalOverrides}
+          perSubCalOverrides={perSubCalOverrides} setPerSubCalOverrides={setPerSubCalOverrides}
+          today={today}
+        />
       </Section>
 
       <button className="run" onClick={onRun}>▶ Run simulation</button>
-      {simReady && <div className="small" style={{ marginTop: 6, textAlign: 'center' }}>Simulation ready: {simDays} days computed.</div>}
+      {simReady && <div className="small" style={{ marginTop: 6, textAlign: 'center' }}>{simDays} days computed.</div>}
     </div>
   )
 }

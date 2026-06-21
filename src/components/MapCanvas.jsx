@@ -12,7 +12,7 @@ const ZONE_CENTROID = Object.fromEntries(
   })
 )
 
-export default function MapCanvas({ derived, assignment, subsConfig, layerPhase, setLayerPhase, layerSub, setLayerSub, layerCrew, setLayerCrew }) {
+export default function MapCanvas({ derived, subsConfig, layerPhase, setLayerPhase, layerSub, setLayerSub }) {
   const canvasRef = useRef(null)
   const viewRef   = useRef({ scale: 1, offX: 0, offY: 0 })
   const panRef    = useRef({ active: false, startX: 0, startY: 0, offX0: 0, offY0: 0 })
@@ -22,7 +22,6 @@ export default function MapCanvas({ derived, assignment, subsConfig, layerPhase,
     return s ? s.color : '#666'
   }
 
-  // resetView: fits the full park into the canvas. Returns true if dimensions are valid.
   const resetView = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return false
@@ -37,8 +36,7 @@ export default function MapCanvas({ derived, assignment, subsConfig, layerPhase,
     return true
   }, [])
 
-  // draw: renders the current derived state onto the canvas
-  const draw = useCallback((d, asgn, showPhase, showSub, showCrew) => {
+  const draw = useCallback((d, showPhase, showSub) => {
     const canvas = canvasRef.current
     if (!canvas || !d) return
     const ctx = canvas.getContext('2d')
@@ -73,47 +71,33 @@ export default function MapCanvas({ derived, assignment, subsConfig, layerPhase,
       ctx.stroke()
     })
 
+    // Zone labels
     ZONES.forEach(z => {
       const c = ZONE_CENTROID[z]
       ctx.font = `${12 / view.scale}px Segoe UI`
       ctx.fillStyle = 'rgba(255,255,255,.5)'
       ctx.fillText('MVPS ' + z, c.x - 10 / view.scale, c.y - 8 / view.scale)
-      if (showCrew) {
-        const names = (asgn && asgn[z]) || []
-        names.forEach((name, i) => {
-          ctx.beginPath()
-          ctx.arc(c.x + (i * 9 - (names.length - 1) * 4.5) / view.scale, c.y + 8 / view.scale, 4.5 / view.scale, 0, 2 * Math.PI)
-          ctx.fillStyle = subColor(name)
-          ctx.fill()
-          ctx.lineWidth = 1 / view.scale; ctx.strokeStyle = '#fff'; ctx.stroke()
-        })
-      }
     })
 
     ctx.restore()
-  }, [subsConfig]) // subColor depends on subsConfig
+  }, [subsConfig])
 
-  // Re-draw whenever any visual input changes.
-  // resetView() guard: if view hasn't been initialized yet (ResizeObserver hasn't fired),
-  // do it now so tables aren't drawn in raw park coordinates outside the visible canvas.
   useEffect(() => {
     if (viewRef.current.scale === 1 && viewRef.current.offX === 0) resetView()
-    draw(derived, assignment, layerPhase, layerSub, layerCrew)
-  }, [derived, assignment, layerPhase, layerSub, layerCrew, draw, resetView])
+    draw(derived, layerPhase, layerSub)
+  }, [derived, layerPhase, layerSub, draw, resetView])
 
-  // ResizeObserver: fit canvas and redraw on size change
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ro = new ResizeObserver(() => {
-      if (resetView()) draw(derived, assignment, layerPhase, layerSub, layerCrew)
+      if (resetView()) draw(derived, layerPhase, layerSub)
     })
     ro.observe(canvas.parentElement)
     return () => ro.disconnect()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetView, draw, derived, assignment, layerPhase, layerSub, layerCrew])
+  }, [resetView, draw, derived, layerPhase, layerSub])
 
-  // Pan
   const onMouseDown = useCallback(e => {
     panRef.current = { active: true, startX: e.clientX, startY: e.clientY, offX0: viewRef.current.offX, offY0: viewRef.current.offY }
   }, [])
@@ -124,15 +108,14 @@ export default function MapCanvas({ derived, assignment, subsConfig, layerPhase,
       const p = panRef.current
       viewRef.current.offX = p.offX0 + (e.clientX - p.startX)
       viewRef.current.offY = p.offY0 + (e.clientY - p.startY)
-      draw(derived, assignment, layerPhase, layerSub, layerCrew)
+      draw(derived, layerPhase, layerSub)
     }
     const onUp = () => { panRef.current.active = false }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [draw, derived, assignment, layerPhase, layerSub, layerCrew])
+  }, [draw, derived, layerPhase, layerSub])
 
-  // Zoom
   const onWheel = useCallback(e => {
     e.preventDefault()
     const canvas = canvasRef.current
@@ -144,8 +127,8 @@ export default function MapCanvas({ derived, assignment, subsConfig, layerPhase,
     view.scale *= factor
     view.offX = mx - wx * view.scale
     view.offY = my - wy * view.scale
-    draw(derived, assignment, layerPhase, layerSub, layerCrew)
-  }, [draw, derived, assignment, layerPhase, layerSub, layerCrew])
+    draw(derived, layerPhase, layerSub)
+  }, [draw, derived, layerPhase, layerSub])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -161,11 +144,10 @@ export default function MapCanvas({ derived, assignment, subsConfig, layerPhase,
       <div className="layer-ctrl">
         <label><input type="checkbox" checked={layerPhase} onChange={e => setLayerPhase(e.target.checked)} /> Phase colors</label>
         <label><input type="checkbox" checked={layerSub}   onChange={e => setLayerSub(e.target.checked)}   /> Subcontractor colors</label>
-        <label><input type="checkbox" checked={layerCrew}  onChange={e => setLayerCrew(e.target.checked)}  /> Active manpower markers</label>
       </div>
 
       <div className="zoom-ctrl">
-        <button onClick={() => { resetView(); draw(derived, assignment, layerPhase, layerSub, layerCrew) }} title="Reset view">⤾</button>
+        <button onClick={() => { resetView(); draw(derived, layerPhase, layerSub) }} title="Reset view">⤾</button>
       </div>
     </div>
   )
