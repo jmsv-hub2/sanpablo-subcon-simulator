@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { ZONES, SUBS_RAW, TABLES, TABLES_BY_ZONE, TOTAL_TABLES, TOTAL_MWP, MWP_PER_TABLE, TOTAL_BY_ZONE } from './data.js'
+import { ZONES, TABLES, TABLES_BY_ZONE, TOTAL_TABLES, TOTAL_MWP, MWP_PER_TABLE, TOTAL_BY_ZONE } from './data.js'
 import { simulate, deriveDay } from '../engine.js'
 import LeftPanel from './components/LeftPanel.jsx'
 import MapCanvas from './components/MapCanvas.jsx'
@@ -17,68 +17,74 @@ export function fmtDate(startDate, dayOffset) {
 }
 
 export default function App() {
-  // ── Input mode: general (one set of values) or per-sub ──
-  const [inputMode, setInputMode] = useState('general') // 'general' | 'perSub'
-
-  // ── General mode values ──
-  const [generalWorkers, setGeneralWorkers] = useState(10)
-  const [generalRate, setGeneralRate]       = useState(0.35)
-
-  // ── Per-sub configs (workers/prodMs/prodPv/pvOnly per sub) ──
-  const [subsConfig, setSubsConfig] = useState(() =>
-    SUBS_RAW.map(s => ({ name: s.name, color: s.color, selected: true, workers: 10, prodMs: 0.35, prodPv: 0.35, pvOnly: false }))
-  )
+  // ── General manpower inputs ──
+  const [generalWorkers,    setGeneralWorkers]    = useState(200)
+  const [generalRateMs,     setGeneralRateMs]     = useState(0.5)
+  const [generalRatePv,     setGeneralRatePv]     = useState(0.4)
+  const [sundayWorkersPct,  setSundayWorkersPct]  = useState(100)
 
   // ── Zones ──
-  const [zonePriority, setZonePriority]     = useState([...ZONES])
-  const [zoneThresholds, setZoneThresholds] = useState(() => Object.fromEntries(ZONES.map(z => [z, 100])))
+  const [zonePriority,   setZonePriority]   = useState([...ZONES])
+  const [zoneThresholds, setZoneThresholds] = useState(() => {
+    const VRE = { 1: 73, 2: 90, 3: 90, 4: 85, 5: 55, 6: 72, 7: 80, 8: 82, 9: 80 }
+    return Object.fromEntries(ZONES.map(z => [z, VRE[z] ?? 100]))
+  })
 
   // ── Deadline / target ──
-  const [globalDeadline, setGlobalDeadline] = useState(defaultDeadline)
-  const [targetPct, setTargetPct]           = useState(100)
+  const [globalDeadline, setGlobalDeadline] = useState(defaultDeadline)  // eslint-disable-line no-unused-vars
+  const [targetPct,      setTargetPct]      = useState(80)
 
-  // ── Calendar overrides — two separate stores ──
-  const [generalCalOverrides, setGeneralCalOverrides]   = useState({}) // { 'YYYY-MM-DD': workers }
-  const [perSubCalOverrides,  setPerSubCalOverrides]    = useState({}) // { 'subName|YYYY-MM-DD': workers }
+  // ── Calendar overrides ──
+  const [generalCalOverrides, setGeneralCalOverrides] = useState({})
 
   // ── Layer toggles ──
-  const [layerPhase, setLayerPhase] = useState(true)
-  const [layerSub,   setLayerSub]   = useState(true)
+  const [layerPhase,  setLayerPhase]  = useState(true)
+  const [layerLabels, setLayerLabels] = useState(true)
 
   // ── Simulation result ──
-  const [sim, setSim]       = useState(null)
+  const [sim,    setSim]    = useState(null)
   const [dayIdx, setDayIdx] = useState(0)
 
-  // ── Active subs resolved with mode-specific values ──
-  const activeSubs = useMemo(() => {
-    const selected = subsConfig.filter(s => s.selected)
-    if (inputMode === 'general') {
-      return selected.map(s => ({ ...s, workers: generalWorkers, prodMs: generalRate, prodPv: generalRate }))
-    }
-    return selected
-  }, [subsConfig, inputMode, generalWorkers, generalRate])
+  // ── Single crew — all workers in one group ──
+  const activeSubs = useMemo(() => [{
+    name: 'Crew', workers: generalWorkers,
+    prodMs: generalRateMs, prodPv: generalRatePv, pvOnly: false,
+  }], [generalWorkers, generalRateMs, generalRatePv])
 
-  // ── Workforce overrides resolved for the engine ──
+  // ── Workforce overrides for the engine ──
   const workforceOverrides = useMemo(() => {
-    if (inputMode === 'general') {
-      const result = {}
-      const selectedNames = subsConfig.filter(s => s.selected).map(s => s.name)
-      Object.entries(generalCalOverrides).forEach(([date, w]) => {
-        selectedNames.forEach(name => { result[`${name}|${date}`] = w })
-      })
-      return result
+    const result = {}
+    if (sundayWorkersPct < 100) {
+      const end = new Date(globalDeadline)
+      const d = new Date(TODAY)
+      while (d <= end) {
+        if (d.getDay() === 0) {
+          const dateStr = d.toISOString().slice(0, 10)
+          result[`Crew|${dateStr}`] = Math.floor(generalWorkers * sundayWorkersPct / 100)
+        }
+        d.setDate(d.getDate() + 1)
+      }
     }
-    return perSubCalOverrides
-  }, [inputMode, generalCalOverrides, perSubCalOverrides, subsConfig])
+    Object.entries(generalCalOverrides).forEach(([date, w]) => {
+      result[`Crew|${date}`] = w
+    })
+    return result
+  }, [generalWorkers, sundayWorkersPct, globalDeadline, generalCalOverrides])
 
-  // ── Initial render: show real data state (simulate 0 days) ──
+  // ── Initial render: show real data state ──
   useEffect(() => {
-    const result = simulate({ tables: TABLES, zones: ZONES, zonePriority: [...ZONES], zoneThresholds: Object.fromEntries(ZONES.map(z => [z, 100])), activeSubs: [], workforceOverrides: {}, startDate: TODAY, maxDays: 0 })
+    const result = simulate({
+      tables: TABLES, zones: ZONES,
+      zonePriority: [...ZONES],
+      zoneThresholds: Object.fromEntries(ZONES.map(z => [z, 100])),
+      activeSubs: [], workforceOverrides: {}, startDate: TODAY, maxDays: 0,
+    })
     setSim(result)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runSim = useCallback(() => {
-    const result = simulate({ tables: TABLES, zones: ZONES, zonePriority, zoneThresholds, activeSubs, workforceOverrides, startDate: TODAY, maxDays: 800 })
+    const globalTargetTables = Math.ceil(TOTAL_TABLES * Math.max(1, Math.min(100, targetPct)) / 100)
+    const result = simulate({ tables: TABLES, zones: ZONES, zonePriority, zoneThresholds, activeSubs, workforceOverrides, startDate: TODAY, maxDays: 800, globalTargetTables })
     setSim(result)
     setDayIdx(0)
   }, [zonePriority, zoneThresholds, activeSubs, workforceOverrides])
@@ -91,55 +97,70 @@ export default function App() {
 
   const snap = sim?.snapshots[dayIdx] ?? null
 
-  // ── Stats (computed once per day, passed to BottomStats) ──
+  // ── Stats ──
   const stats = useMemo(() => {
     if (!sim || !derived || !snap) return null
-    let totalMs = 0, totalPv = 0
-    ZONES.forEach(z => { totalMs += snap.remaining[z].ms; totalPv += snap.remaining[z].pvA + snap.remaining[z].pvB })
-    const pvDoneCount = TABLES.filter(t => derived.phase[t.id] >= 5).length
-    const completedMwp = pvDoneCount * MWP_PER_TABLE
-    const globalCompletionDay = ZONES.every(z => sim.zoneCompletionDay[z] !== undefined)
-      ? Math.max(...ZONES.map(z => sim.zoneCompletionDay[z])) : null
-    const gd = new Date(globalDeadline)
-    const globalStatus = globalCompletionDay !== null
-      ? ((new Date(TODAY).setDate(new Date(TODAY).getDate() + globalCompletionDay), new Date(TODAY)) <= gd ? 'ok' : 'bad')
-      : 'unknown'
-    const tPct = Math.max(1, Math.min(100, targetPct))
-    const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
+
+    // Work still needed globally to reach targetPct% of the total park
+    const tPct         = Math.max(1, Math.min(100, targetPct))
+    const targetTables = Math.ceil(TOTAL_TABLES * tPct / 100)
+
+    let pvDoneGlobal = 0, pvAGlobal = 0
+    ZONES.forEach(z => {
+      const r = snap.remaining[z]
+      const total_z = TABLES_BY_ZONE[z].length
+      pvDoneGlobal += total_z - r.ms - r.pvA - r.pvB - (r.pvPending || 0)
+      pvAGlobal    += r.pvA
+    })
+    const pvGap   = Math.max(0, targetTables - pvDoneGlobal)
+    const totalPv = pvGap
+    const totalMs = Math.max(0, pvGap - pvAGlobal)
+
+    const pvDoneCount   = TABLES.filter(t => derived.phase[t.id] >= 5).length
+    const completedMwp  = pvDoneCount * MWP_PER_TABLE
     let targetDay = null
     for (const s of sim.snapshots) {
       let done = 0
-      ZONES.forEach(z => { done += TABLES_BY_ZONE[z].length - s.remaining[z].ms - s.remaining[z].pvA - s.remaining[z].pvB })
+      ZONES.forEach(z => { done += TABLES_BY_ZONE[z].length - s.remaining[z].ms - s.remaining[z].pvA - s.remaining[z].pvB - (s.remaining[z].pvPending || 0) })
       if (done >= targetTables) { targetDay = s.day; break }
     }
-    const targetDate = targetDay !== null ? new Date(TODAY) : null
-    if (targetDate) targetDate.setDate(targetDate.getDate() + targetDay)
-    const targetStatus = targetDate ? (targetDate <= gd ? 'ok' : 'bad') : 'unknown'
+    const targetDate   = targetDay !== null ? (() => { const d = new Date(TODAY); d.setDate(d.getDate() + targetDay); return d })() : null
+    const targetStatus = targetDate ? (targetDate <= new Date(globalDeadline) ? 'ok' : 'bad') : 'unknown'
 
-    const globalCompletionDate = globalCompletionDay !== null ? (() => { const d = new Date(TODAY); d.setDate(d.getDate() + globalCompletionDay); return d })() : null
-    const realGlobalStatus = globalCompletionDate ? (globalCompletionDate <= gd ? 'ok' : 'bad') : 'unknown'
+    return { totalMs, totalPv, pvDoneCount, completedMwp, targetDay, targetStatus, tPct, targetTables }
+  }, [sim, derived, snap, globalDeadline, targetPct, zoneThresholds])
 
-    return { totalMs, totalPv, pvDoneCount, completedMwp, globalCompletionDay, globalStatus: realGlobalStatus, targetDay, targetStatus, tPct, targetTables }
-  }, [sim, derived, snap, globalDeadline, targetPct])
+  // ── Daily throughput ──
+  const dailyThroughput = useMemo(() => {
+    if (!sim || dayIdx === 0) return { ms: 0, pv: 0, total: 0 }
+    const prev = sim.snapshots[dayIdx - 1]
+    const curr = sim.snapshots[dayIdx]
+    let ms = 0, pv = 0
+    ZONES.forEach(z => {
+      ms += prev.remaining[z].ms - curr.remaining[z].ms
+      pv += (prev.remaining[z].pvA - curr.remaining[z].pvA)
+           + (prev.remaining[z].pvB - curr.remaining[z].pvB)
+           + (prev.remaining[z].pvPending || 0)
+    })
+    return { ms: Math.max(0, ms), pv: Math.max(0, pv), total: Math.max(0, ms + pv) }
+  }, [sim, dayIdx])
 
   const fmt = (offset) => offset !== null && offset !== undefined ? fmtDate(TODAY, offset) : '—'
 
   return (
     <>
       <LeftPanel
-        inputMode={inputMode} setInputMode={setInputMode}
         generalWorkers={generalWorkers} setGeneralWorkers={setGeneralWorkers}
-        generalRate={generalRate} setGeneralRate={setGeneralRate}
-        subsConfig={subsConfig} setSubsConfig={setSubsConfig}
+        generalRateMs={generalRateMs}   setGeneralRateMs={setGeneralRateMs}
+        generalRatePv={generalRatePv}   setGeneralRatePv={setGeneralRatePv}
+        sundayWorkersPct={sundayWorkersPct} setSundayWorkersPct={setSundayWorkersPct}
+        snap={snap} stats={stats} fmt={fmt}
         zonePriority={zonePriority} setZonePriority={setZonePriority}
         zoneThresholds={zoneThresholds} setZoneThresholds={setZoneThresholds}
-        globalDeadline={globalDeadline} setGlobalDeadline={setGlobalDeadline}
+        globalDeadline={globalDeadline}
         targetPct={targetPct} setTargetPct={setTargetPct}
         generalCalOverrides={generalCalOverrides} setGeneralCalOverrides={setGeneralCalOverrides}
-        perSubCalOverrides={perSubCalOverrides} setPerSubCalOverrides={setPerSubCalOverrides}
-        activeSubs={activeSubs}
-        onRun={runSim}
-        simReady={!!sim && sim.snapshots.length > 1}
+        onRun={runSim} simReady={!!sim && sim.snapshots.length > 1}
         simDays={sim ? sim.snapshots.length - 1 : 0}
         today={TODAY}
       />
@@ -161,14 +182,18 @@ export default function App() {
         <div className="map-area">
           <MapCanvas
             derived={derived}
-            subsConfig={subsConfig}
-            layerPhase={layerPhase} setLayerPhase={setLayerPhase}
-            layerSub={layerSub}     setLayerSub={setLayerSub}
+            layerPhase={layerPhase}   setLayerPhase={setLayerPhase}
+            layerLabels={layerLabels} setLayerLabels={setLayerLabels}
+            zoneSatisfiedDay={sim?.zoneSatisfiedDay} dayIdx={dayIdx}
           />
-          <Legend activeSubs={activeSubs} />
+          <Legend />
         </div>
 
-        <BottomStats sim={sim} stats={stats} snap={snap} fmt={fmt} subsConfig={subsConfig} />
+        <BottomStats
+          sim={sim} stats={stats} snap={snap} fmt={fmt}
+          zonePriority={zonePriority} zoneThresholds={zoneThresholds}
+          dayIdx={dayIdx} dailyThroughput={dailyThroughput}
+        />
       </div>
     </>
   )

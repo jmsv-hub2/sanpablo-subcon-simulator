@@ -5,7 +5,7 @@
 // already resolved by the caller (common-rate vs per-sub is a UI concern, not engine).
 // Date arithmetic uses UTC methods so workforceOverrides keys are timezone-safe.
 
-export function msDone(t) { return t.ph >= 4; }
+export function msDone(t) { return t.ph >= 3; }
 export function pvDone(t) { return t.ph >= 5; }
 
 function spatialSort(a, b) { return (a.y - b.y) || (a.x - b.x); }
@@ -35,9 +35,17 @@ export function workersOnDay(subName, baseWorkers, dayIdx, workforceOverrides, s
 /**
  * Run the day-by-day simulation.
  *
- * Two PV backlogs per zone (see README):
- *   pvA — tables that already had MS done in real data (ph===4); only pvOnly subs work here.
- *   pvB — tables that go through MS during the simulation; same full-pipeline crew does MS→PV.
+ * Three PV pools per zone:
+ *   pvA       — tables MS-done in real data (ph===4). Consumed by pvOnly subs first; if none,
+ *               non-pvOnly subs consume pvA with their PV crew.
+ *   pvB       — tables MS-done during simulation, inspection cleared. PV-eligible.
+ *   pvPending — tables MS-done today; moved to pvB next day (1-day inspection gap).
+ *
+ * Worker model (parallel crews): on any given day each worker does EITHER MS OR PV, not both.
+ * pvOnly subs are processed first so they consume pvA/pvB before non-pvOnly subs allocate workers.
+ * Non-pvOnly subs: pvWorkers = min(workers, pvAvail/pvRate) → rest go to MS.
+ * No MS is started on a zone once its VRE threshold is satisfied.
+ * Simulation stops when all zones are VRE-satisfied AND pvPending=pvB≈0 everywhere.
  *
  * @param {object}   p
  * @param {object[]} p.tables            [{id, zone, x, y, ph, realMs, realPv}]
@@ -54,6 +62,7 @@ export function workersOnDay(subName, baseWorkers, dayIdx, workforceOverrides, s
 export function simulate({
   tables, zones, zonePriority, zoneThresholds,
   activeSubs, workforceOverrides = {}, startDate, maxDays,
+  globalTargetTables = 0,
 }) {
   const totalByZone = {};
   zones.forEach(z => { totalByZone[z] = tables.filter(t => t.zone === z).length; });
@@ -62,9 +71,10 @@ export function simulate({
   zones.forEach(z => {
     const ts = tables.filter(t => t.zone === z);
     remaining[z] = {
-      ms:  ts.filter(t => !msDone(t)).length,
-      pvA: ts.filter(t => t.ph === 4).length,
-      pvB: 0,
+      ms:        ts.filter(t => !msDone(t)).length,
+      pvA:       ts.filter(t => t.ph >= 3 && t.ph < 5).length,
+      pvB:       0,
+      pvPending: 0, // MS-done tables under inspection; eligible for PV from next day onwards
     };
   });
 
@@ -84,18 +94,24 @@ export function simulate({
   const zoneCompletionDay = {};
   const zoneSatisfiedDay  = {};
 
-  const totalRemaining = z => { const r = remaining[z]; return r.ms + r.pvA + r.pvB; };
+  const totalRemaining = z => { const r = remaining[z]; return r.ms + r.pvA + r.pvB + r.pvPending; };
   const pvDonePct = z => {
     const done = totalByZone[z] - totalRemaining(z);
     return totalByZone[z] > 0 ? (done / totalByZone[z]) * 100 : 100;
   };
-  const zoneSatisfied  = z => totalRemaining(z) <= 0 || pvDonePct(z) >= (zoneThresholds[z] ?? 100);
-  const hasWorkForSub  = (z, isPvOnly) => {
+  const zoneSatisfied = z => totalRemaining(z) <= 0 || pvDonePct(z) >= (zoneThresholds[z] ?? 100);
+
+  // On a satisfied zone, non-pvOnly subs only clear remaining pvA/pvB (no new MS).
+  const hasWorkForSub = (z, isPvOnly) => {
     const r = remaining[z];
-    return isPvOnly ? (r.pvA + r.pvB) > 0 : (r.ms + r.pvB) > 0;
+    if (isPvOnly || zoneSatisfied(z)) return (r.pvA + r.pvB) > 0;
+    return (r.pvA + r.pvB + r.ms) > 0;
   };
 
   for (let day = 1; day <= maxDays; day++) {
+    // Promote yesterday's inspected MS → eligible for PV today (1-day inspection gap)
+    zones.forEach(z => { remaining[z].pvB += remaining[z].pvPending; remaining[z].pvPending = 0; });
+
     const assignment = {};
     zones.forEach(z => { assignment[z] = []; });
 
@@ -106,45 +122,129 @@ export function simulate({
       let target = zonePriority.find(z => !zoneSatisfied(z) && hasWorkForSub(z, s.pvOnly));
       if (target === undefined) target = zonePriority.find(z => hasWorkForSub(z, s.pvOnly));
       if (target === undefined) return;
-      subTargets.push({ name: s.name, zone: target, workers, prodMs: s.prodMs, prodPv: s.prodPv, pvOnly: s.pvOnly });
+
+      // pvB cleanup: first satisfied zone (different from primary) with pvB > 0.
+      // Workers split: some clear orphaned pvB, rest go to primary zone. No one sits idle.
+      const pvCleanupZone = s.pvOnly ? undefined
+        : zonePriority.find(z => z !== target && remaining[z].pvB > 0);
+
+      subTargets.push({ name: s.name, zone: target, pvCleanupZone, workers, prodMs: s.prodMs, prodPv: s.prodPv, pvOnly: s.pvOnly });
       assignment[target].push(s.name);
     });
 
-    subTargets.forEach(st => {
+    // pvOnly subs processed first so they consume pvA/pvB before non-pvOnly subs allocate
+    const pvOnlyTargets = subTargets.filter(st => st.pvOnly);
+    const fullTargets   = subTargets.filter(st => !st.pvOnly);
+
+    pvOnlyTargets.forEach(st => {
       const r = remaining[st.zone];
-      if (st.pvOnly) {
-        let capacity = st.workers * st.prodPv;
-        const consumedA = Math.min(r.pvA, capacity);
-        if (consumedA > 0) {
-          r.pvA -= consumedA;
-          capacity -= consumedA;
-          pvQueueA[st.zone].push({ sub: st.name, count: consumedA });
+      let capacity = st.workers * st.prodPv;
+      const consumedB = Math.min(r.pvB, capacity);
+      if (consumedB > 0) { r.pvB -= consumedB; capacity -= consumedB; pvQueueB[st.zone].push({ sub: st.name, count: consumedB }); }
+      const consumedA = Math.min(r.pvA, capacity);
+      if (consumedA > 0) { r.pvA -= consumedA; pvQueueA[st.zone].push({ sub: st.name, count: consumedA }); }
+    });
+
+    // Returns how many MS tables must still be done in zone z to eventually reach its VRE threshold.
+    // Derivation: eventual_pvDone = (total - ms - pvA - pvB - pvPending) + pvA + pvB + pvPending + ms_to_do
+    //                             = total - ms + ms_to_do   (pvA, pvB, pvPending cancel out)
+    // Therefore: ms_needed = max(0, minPvDone - total + ms_remaining)
+    // Note: pvA is intentionally excluded — it will be PV'd regardless and is already counted.
+    const msNeededForZone = z => {
+      const rz = remaining[z];
+      const minPvDone = Math.ceil(totalByZone[z] * (zoneThresholds[z] ?? 100) / 100);
+      return Math.max(0, minPvDone - totalByZone[z] + rz.ms);
+    };
+
+    fullTargets.forEach(st => {
+      let budget = st.workers;
+
+      // Step 1: pvB cleanup in a satisfied zone that was abandoned (parallel crews).
+      if (st.pvCleanupZone !== undefined) {
+        const rc = remaining[st.pvCleanupZone];
+        if (rc.pvB > 0 && st.prodPv > 0) {
+          const cleanupWorkersNeeded = rc.pvB / st.prodPv;
+          const cleanupWorkers = Math.min(budget, cleanupWorkersNeeded);
+          const consumed = Math.min(rc.pvB, cleanupWorkers * st.prodPv);
+          if (consumed > 0) {
+            rc.pvB -= consumed;
+            pvQueueB[st.pvCleanupZone].push({ sub: st.name, count: consumed });
+            budget -= cleanupWorkers;
+          }
         }
-        const consumedB = Math.min(r.pvB, capacity);
-        if (consumedB > 0) {
-          r.pvB -= consumedB;
-          pvQueueB[st.zone].push({ sub: st.name, count: consumedB });
+      }
+
+      if (budget <= 0) return;
+      const r = remaining[st.zone];
+
+      // Step 2: PV work on primary zone.
+      const pvAvail = r.pvA + r.pvB;
+      const pvWorkersNeeded = st.prodPv > 0 && pvAvail > 0 ? pvAvail / st.prodPv : 0;
+      const pvWorkerDays = Math.min(budget, pvWorkersNeeded);
+      if (pvWorkerDays > 0) {
+        let pvCap = pvWorkerDays * st.prodPv;
+        const consumedB = Math.min(r.pvB, pvCap);
+        if (consumedB > 0) { r.pvB -= consumedB; pvCap -= consumedB; pvQueueB[st.zone].push({ sub: st.name, count: consumedB }); }
+        const consumedA = Math.min(r.pvA, pvCap);
+        if (consumedA > 0) { r.pvA -= consumedA; pvQueueA[st.zone].push({ sub: st.name, count: consumedA }); }
+      }
+
+      // Step 3: MS on primary zone — capped to only what is needed to reach the VRE threshold.
+      // After today's PV, re-check satisfaction (may have just crossed the line).
+      let msWorkersUsed = 0;
+      if (!zoneSatisfied(st.zone)) {
+        const msWorkerDays = budget - pvWorkerDays;
+        const needed = msNeededForZone(st.zone);
+        if (msWorkerDays > 0.01 && r.ms > 0 && needed > 0) {
+          const consumedMs = Math.min(r.ms, Math.min(needed, msWorkerDays * st.prodMs));
+          if (consumedMs > 0) {
+            r.ms        -= consumedMs;
+            r.pvPending += consumedMs;
+            msQueue[st.zone].push({ sub: st.name, count: consumedMs });
+            msWorkersUsed = st.prodMs > 0 ? consumedMs / st.prodMs : 0;
+          }
         }
-      } else {
-        const msWorkerDaysNeeded = st.prodMs > 0 ? r.ms / st.prodMs : Infinity;
-        let consumedMs, leftoverWorkerDays;
-        if (msWorkerDaysNeeded <= st.workers) {
-          consumedMs = r.ms;
-          leftoverWorkerDays = st.workers - msWorkerDaysNeeded;
-        } else {
-          consumedMs = st.workers * st.prodMs;
-          leftoverWorkerDays = 0;
+      }
+
+      // Step 4: Sweep remaining idle capacity — unsatisfied zones first, then satisfied.
+      // Unsatisfied zones get priority so workers aren't consumed by already-met zones
+      // while VRE targets elsewhere are still pending.
+      let idle = budget - pvWorkerDays - msWorkersUsed;
+      const sweepOrder = [
+        ...zonePriority.filter(z => !zoneSatisfied(z)),
+        ...zonePriority.filter(z => zoneSatisfied(z)),
+      ].filter(z => z !== st.zone && z !== st.pvCleanupZone);
+      for (const z of sweepOrder) {
+        if (idle <= 0.01) break;
+        if (z === st.zone || z === st.pvCleanupZone) continue;
+        const rz = remaining[z];
+
+        // PV in this zone
+        const pvAvailZ = rz.pvA + rz.pvB;
+        if (pvAvailZ > 0 && st.prodPv > 0) {
+          const pvWorkersZ = Math.min(idle, pvAvailZ / st.prodPv);
+          if (pvWorkersZ > 0.01) {
+            let pvCapZ = pvWorkersZ * st.prodPv;
+            const consumedBZ = Math.min(rz.pvB, pvCapZ);
+            if (consumedBZ > 0) { rz.pvB -= consumedBZ; pvCapZ -= consumedBZ; pvQueueB[z].push({ sub: st.name, count: consumedBZ }); }
+            const consumedAZ = Math.min(rz.pvA, pvCapZ);
+            if (consumedAZ > 0) { rz.pvA -= consumedAZ; pvQueueA[z].push({ sub: st.name, count: consumedAZ }); }
+            idle -= pvWorkersZ;
+            if (!assignment[z].includes(st.name)) assignment[z].push(st.name);
+          }
         }
-        if (consumedMs > 0) {
-          r.ms  -= consumedMs;
-          r.pvB += consumedMs; // MS-done tables immediately eligible for same crew's PV
-          msQueue[st.zone].push({ sub: st.name, count: consumedMs });
-        }
-        if (leftoverWorkerDays > 0) {
-          const consumedPv = Math.min(r.pvB, leftoverWorkerDays * st.prodPv);
-          if (consumedPv > 0) {
-            r.pvB -= consumedPv;
-            pvQueueB[st.zone].push({ sub: st.name, count: consumedPv });
+
+        // MS in this zone (capped to VRE-needed)
+        if (idle > 0.01 && !zoneSatisfied(z) && rz.ms > 0 && st.prodMs > 0) {
+          const neededZ = msNeededForZone(z);
+          if (neededZ > 0) {
+            const consumedMsZ = Math.min(rz.ms, Math.min(neededZ, idle * st.prodMs));
+            if (consumedMsZ > 0.01) {
+              rz.ms -= consumedMsZ; rz.pvPending += consumedMsZ;
+              msQueue[z].push({ sub: st.name, count: consumedMsZ });
+              idle -= consumedMsZ / st.prodMs;
+              if (!assignment[z].includes(st.name)) assignment[z].push(st.name);
+            }
           }
         }
       }
@@ -164,7 +264,18 @@ export function simulate({
       pvQueueB: clone(pvQueueB),
     });
 
-    if (Object.keys(zoneCompletionDay).length === zones.length) break;
+    // Stop when all zones are VRE-satisfied AND no sim-created PV work remains
+    // AND the global target (if any) has been reached.
+    const allVreMet = zones.every(z => {
+      const r = remaining[z];
+      return zoneSatisfied(z) && r.pvPending < 0.01 && r.pvB < 0.01;
+    });
+    const pvDoneGlobal = zones.reduce((acc, z) => {
+      const r = remaining[z];
+      return acc + totalByZone[z] - r.ms - r.pvA - r.pvB - (r.pvPending || 0);
+    }, 0);
+    const globalTargetMet = globalTargetTables <= 0 || pvDoneGlobal >= globalTargetTables;
+    if (allVreMet && globalTargetMet) break;
   }
 
   return { snapshots, zoneCompletionDay, zoneSatisfiedDay };
@@ -197,10 +308,10 @@ export function deriveDay(snapshot, tablesByZone, zones) {
     ts.forEach(t => { if (msDone(t)) phase[t.id] = 4; }); // real-data MS-done tables start green
 
     // PV step: green (4) → dark blue (5), pool A and B consumed independently
-    const groupA = ts.filter(t => t.ph === 4).sort(spatialSort);          // pre-existing backlog
+    const groupA = ts.filter(t => t.ph >= 3 && t.ph < 5).sort(spatialSort); // pre-existing backlog (ph 3=MS pending, 4=MS approved)
     const groupB = msPool.filter(t => phase[t.id] === 4).sort(spatialSort); // freshly MS'd in sim
     const doneA  = groupA.length - r.pvA;
-    const doneB  = groupB.length - r.pvB;
+    const doneB  = groupB.length - r.pvB - (r.pvPending || 0); // pvPending = inspected, not yet PV-eligible
 
     groupA.forEach((t, i) => {
       if (i < doneA) { phase[t.id] = 5; owner[t.id] = ownerFromQueue(snapshot.pvQueueA[z], i) || owner[t.id]; }

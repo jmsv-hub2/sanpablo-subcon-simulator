@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { ZONES, TOTAL_TABLES, TOTAL_MWP, TOTAL_BY_ZONE } from '../data.js'
 
 const MWP_PER_TABLE = TOTAL_MWP / TOTAL_TABLES
@@ -15,93 +15,45 @@ function Section({ title, children, defaultOpen = true }) {
   )
 }
 
-// ── Mode toggle ─────────────────────────────────────────────────────────────
+// ── VRE threshold input ──────────────────────────────────────────────────────
 
-function ModeBar({ value, onChange }) {
+function VreInput({ value, onChange }) {
+  const [str, setStr] = useState(String(value))
+  useEffect(() => { setStr(String(value)) }, [value])
   return (
-    <div className="modebar">
-      <label><input type="radio" name="inputMode" value="general" checked={value === 'general'} onChange={() => onChange('general')} /> General</label>
-      <label><input type="radio" name="inputMode" value="perSub"  checked={value === 'perSub'}  onChange={() => onChange('perSub')}  /> Per subcontractor</label>
-    </div>
-  )
-}
-
-// ── Subcontractors ──────────────────────────────────────────────────────────
-
-function SubsList({ subsConfig, setSubsConfig, inputMode }) {
-  const [showInactive, setShowInactive] = useState(false)
-  const active   = subsConfig.filter(s => s.selected)
-  const inactive = subsConfig.filter(s => !s.selected)
-
-  function update(idx, field, value) {
-    setSubsConfig(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
-  }
-  function toggle(idx) {
-    setSubsConfig(prev => prev.map((s, i) => i === idx ? { ...s, selected: !s.selected } : s))
-  }
-
-  return (
-    <div className="card">
-      {/* header — only show rate columns in perSub mode */}
-      <div className={`sub-row ${inputMode === 'perSub' ? 'persub-mode' : 'general-sub-mode'}`}
-        style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11 }}>
-        <div /><div>Sub</div>
-        {inputMode === 'perSub' && <><div>Workers</div><div>MS r.</div><div>PV r.</div></>}
-        <div title="PV only">PV only</div>
-      </div>
-
-      {active.map(s => {
-        const idx = subsConfig.indexOf(s)
-        return (
-          <div key={s.name} className={`sub-row ${inputMode === 'perSub' ? 'persub-mode' : 'general-sub-mode'}`}>
-            <input type="checkbox" checked onChange={() => toggle(idx)} />
-            <div className="sub-name"><span className="dot" style={{ background: s.color }} />{s.name}</div>
-            {inputMode === 'perSub' && <>
-              <input type="number" min={0} value={s.workers} onChange={e => update(idx, 'workers', +e.target.value)} />
-              <input type="number" min={0} step={0.01} value={s.prodMs} onChange={e => update(idx, 'prodMs', +e.target.value)} />
-              <input type="number" min={0} step={0.01} value={s.prodPv} onChange={e => update(idx, 'prodPv', +e.target.value)} />
-            </>}
-            <div className="pvonly">
-              <input type="checkbox" checked={s.pvOnly} onChange={e => update(idx, 'pvOnly', e.target.checked)} title="Only installs PV on tables that already have MS done" />
-            </div>
-          </div>
-        )
-      })}
-
-      {inactive.length > 0 && (
-        <>
-          <div className={`collapsible-head${showInactive ? ' open' : ''}`} onClick={() => setShowInactive(o => !o)}>
-            <span className="arrow">▸</span> Inactive ({inactive.length})
-          </div>
-          {showInactive && inactive.map(s => {
-            const idx = subsConfig.indexOf(s)
-            return (
-              <div key={s.name} className="sub-row inactive-mode" style={{ marginTop: 4 }}>
-                <input type="checkbox" checked={false} onChange={() => toggle(idx)} />
-                <div className="sub-name"><span className="dot" style={{ background: s.color }} />{s.name}</div>
-              </div>
-            )
-          })}
-        </>
-      )}
-    </div>
+    <input className="vre" type="text" inputMode="numeric"
+      value={str} onFocus={e => e.target.select()}
+      onChange={e => {
+        const raw = e.target.value.replace(/\D/g, '').slice(0, 3)
+        setStr(raw)
+        const n = parseInt(raw, 10)
+        if (!isNaN(n) && n >= 0 && n <= 100) onChange(n)
+      }}
+      onBlur={() => {
+        const n = parseInt(str, 10)
+        if (!str || isNaN(n) || n < 0) { setStr('0'); onChange(0) }
+        else if (n > 100) { setStr('100'); onChange(100) }
+        else setStr(String(n))
+      }}
+      title="VRE threshold %" />
   )
 }
 
 // ── Zone priority ────────────────────────────────────────────────────────────
 
-function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresholds }) {
+function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresholds, snap }) {
   const dragIdx = useRef(null)
 
   function onDragStart(i) { dragIdx.current = i }
   function onDragOver(e, i) {
     e.preventDefault()
     if (dragIdx.current === null || dragIdx.current === i) return
+    const from = dragIdx.current
+    dragIdx.current = i
     setZonePriority(prev => {
       const next = [...prev]
-      const [item] = next.splice(dragIdx.current, 1)
+      const [item] = next.splice(from, 1)
       next.splice(i, 0, item)
-      dragIdx.current = i
       return next
     })
   }
@@ -110,94 +62,60 @@ function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresh
   return (
     <div>
       {zonePriority.map((z, i) => {
-        const mwp = (TOTAL_BY_ZONE[z] * MWP_PER_TABLE).toFixed(2)
+        const total = TOTAL_BY_ZONE[z]
+        const totalMwp = (total * MWP_PER_TABLE).toFixed(2)
+        let mwLabel = `${totalMwp} MW`
+        if (snap) {
+          const r = snap.remaining[z]
+          const done = total - r.ms - r.pvA - r.pvB - (r.pvPending || 0)
+          const doneMwp = (done * MWP_PER_TABLE).toFixed(2)
+          mwLabel = `${doneMwp}/${totalMwp}`
+        }
         return (
           <div key={z} className="zone-row"
             draggable onDragStart={() => onDragStart(i)} onDragOver={e => onDragOver(e, i)} onDragEnd={onDragEnd}>
             <span className="grip">⠿</span>
             <span className="zn">#{i + 1}</span>
             <span style={{ flex: 1 }}>MVPS {z}</span>
-            <span className="small" style={{ color: 'var(--muted)', marginRight: 4 }}>{mwp} MW</span>
-            <input className="vre" type="number" min={1} max={100} value={zoneThresholds[z] ?? 100}
-              onChange={e => setZoneThresholds(prev => ({ ...prev, [z]: +e.target.value }))}
-              title="VRE threshold %" />
+            <span className="small" style={{ color: 'var(--muted)', marginRight: 2 }}>{mwLabel} MW</span>
+            <VreInput value={zoneThresholds[z] ?? 100}
+              onChange={v => setZoneThresholds(prev => ({ ...prev, [z]: v }))} />
             <span className="small">%</span>
           </div>
         )
       })}
-      <div className="small" style={{ marginTop: 4 }}>Drag to reorder · % = VRE test threshold</div>
+      <div className="small" style={{ marginTop: 4 }}>Drag to reorder · % = minimum VRE threshold</div>
     </div>
   )
 }
 
-// ── Workforce calendar ──────────────────────────────────────────────────────
+// ── Workforce calendar (general mode only) ───────────────────────────────────
 
-function WorkforceCalendar({ inputMode, activeSubs, globalDeadline, generalCalOverrides, setGeneralCalOverrides, perSubCalOverrides, setPerSubCalOverrides, today }) {
+function WorkforceCalendar({ globalDeadline, generalCalOverrides, setGeneralCalOverrides, today }) {
   const days = []
   const end = new Date(globalDeadline)
   for (let d = new Date(today), i = 0; d <= end && i < 365; d.setDate(d.getDate() + 1), i++) {
     days.push(d.toISOString().slice(0, 10))
   }
-
-  if (inputMode === 'general') {
-    return (
-      <div id="calWrap">
-        <table className="cal">
-          <thead><tr><th>Date</th><th>Workers (all crews)</th></tr></thead>
-          <tbody>
-            {days.map(date => (
-              <tr key={date}>
-                <td>{date}</td>
-                <td>
-                  <input type="number" min={0}
-                    value={generalCalOverrides[date] !== undefined ? generalCalOverrides[date] : ''}
-                    placeholder="—"
-                    onChange={e => setGeneralCalOverrides(prev => {
-                      const next = { ...prev }
-                      if (e.target.value === '') delete next[date]
-                      else next[date] = +e.target.value
-                      return next
-                    })} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-  // per-sub mode
-  if (activeSubs.length === 0) return <div className="small muted">No active subcontractors.</div>
   return (
     <div id="calWrap">
       <table className="cal">
-        <thead>
-          <tr>
-            <th>Date</th>
-            {activeSubs.map(s => <th key={s.name} style={{ color: s.color }}>{s.name}</th>)}
-          </tr>
-        </thead>
+        <thead><tr><th>Date</th><th>Workers (override)</th></tr></thead>
         <tbody>
           {days.map(date => (
             <tr key={date}>
               <td>{date}</td>
-              {activeSubs.map(s => {
-                const key = `${s.name}|${date}`
-                return (
-                  <td key={s.name}>
-                    <input type="number" min={0}
-                      value={perSubCalOverrides[key] !== undefined ? perSubCalOverrides[key] : ''}
-                      placeholder={s.workers}
-                      onChange={e => setPerSubCalOverrides(prev => {
-                        const next = { ...prev }
-                        if (e.target.value === '') delete next[key]
-                        else next[key] = +e.target.value
-                        return next
-                      })} />
-                  </td>
-                )
-              })}
+              <td>
+                <input type="number" min={0}
+                  value={generalCalOverrides[date] !== undefined ? generalCalOverrides[date] : ''}
+                  placeholder="—"
+                  onChange={e => setGeneralCalOverrides(prev => {
+                    const next = { ...prev }
+                    if (e.target.value === '') delete next[date]
+                    else next[date] = +e.target.value
+                    return next
+                  })} />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -209,26 +127,22 @@ function WorkforceCalendar({ inputMode, activeSubs, globalDeadline, generalCalOv
 // ── Main left panel ──────────────────────────────────────────────────────────
 
 export default function LeftPanel({
-  inputMode, setInputMode,
-  generalWorkers, setGeneralWorkers, generalRate, setGeneralRate,
-  subsConfig, setSubsConfig,
+  generalWorkers, setGeneralWorkers,
+  generalRateMs, setGeneralRateMs,
+  generalRatePv, setGeneralRatePv,
+  sundayWorkersPct, setSundayWorkersPct,
+  snap, stats, fmt,
   zonePriority, setZonePriority, zoneThresholds, setZoneThresholds,
-  globalDeadline, setGlobalDeadline, targetPct, setTargetPct,
+  globalDeadline,
+  targetPct, setTargetPct,
   generalCalOverrides, setGeneralCalOverrides,
-  perSubCalOverrides, setPerSubCalOverrides,
-  activeSubs, onRun, simReady, simDays, today,
+  onRun, simReady, simDays, today,
 }) {
   const tPct = Math.max(1, Math.min(100, targetPct))
   const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
   const targetMwp    = (targetTables * TOTAL_MWP / TOTAL_TABLES).toFixed(2)
 
-  function handleModeChange(mode) {
-    if (mode === 'perSub') {
-      // Copy general values into each sub's fields when switching
-      setSubsConfig(prev => prev.map(s => ({ ...s, workers: generalWorkers, prodMs: generalRate, prodPv: generalRate })))
-    }
-    setInputMode(mode)
-  }
+  const statusColor = stats?.targetStatus === 'ok' ? 'var(--ok)' : stats?.targetStatus === 'bad' ? 'var(--bad)' : 'var(--text)'
 
   return (
     <div className="col">
@@ -236,56 +150,73 @@ export default function LeftPanel({
       <div className="small">Subcontractor allocation simulator</div>
 
       <Section title="Manpower & productivity">
-        <ModeBar value={inputMode} onChange={handleModeChange} />
-        {inputMode === 'general' ? (
-          <div className="card">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
-              <div>
-                <div className="small" style={{ marginBottom: 3 }}>Manpower (workers)</div>
-                <input type="number" min={0} value={generalWorkers} onChange={e => setGeneralWorkers(+e.target.value)} />
-              </div>
-              <div>
-                <div className="small" style={{ marginBottom: 3 }}>Rate (tables/person/day)</div>
-                <input type="number" min={0} step={0.01} value={generalRate} onChange={e => setGeneralRate(+e.target.value)} />
-              </div>
+        <div className="card">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11 }}>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div className="small" style={{ marginBottom: 2 }}>Manpower</div>
+              <input type="number" min={0} value={generalWorkers} onChange={e => setGeneralWorkers(+e.target.value)} onFocus={e => e.target.select()} />
             </div>
-            <div className="small" style={{ marginTop: 6 }}>Applied equally to all active subcontractors.</div>
-            <div style={{ marginTop: 10 }}>
-              <div className="small" style={{ marginBottom: 4, color: 'var(--muted)' }}>Active subcontractors</div>
-              <SubsList subsConfig={subsConfig} setSubsConfig={setSubsConfig} inputMode="general" />
+            <div>
+              <div className="small" style={{ marginBottom: 2 }}>MS rate (t/p/d)</div>
+              <input type="number" min={0} step={0.01} value={generalRateMs} onChange={e => setGeneralRateMs(+e.target.value)} onFocus={e => e.target.select()} />
+            </div>
+            <div>
+              <div className="small" style={{ marginBottom: 2 }}>PV rate (t/p/d)</div>
+              <input type="number" min={0} step={0.01} value={generalRatePv} onChange={e => setGeneralRatePv(+e.target.value)} onFocus={e => e.target.select()} />
+            </div>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="small" style={{ flex: 1 }}>Sundays</div>
+              <input type="number" min={0} max={100} value={sundayWorkersPct} style={{ width: 46 }}
+                onChange={e => setSundayWorkersPct(Math.max(0, Math.min(100, +e.target.value)))} onFocus={e => e.target.select()} />
+              <span className="small">% · 0 = no work</span>
             </div>
           </div>
-        ) : (
-          <SubsList subsConfig={subsConfig} setSubsConfig={setSubsConfig} inputMode="perSub" />
-        )}
+        </div>
       </Section>
+
+      <div className="card" style={{ fontSize: 11 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <div>
+            <div className="small muted" style={{ marginBottom: 2 }}>Target %</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="number" min={1} max={100} value={targetPct} style={{ width: '100%' }}
+                onChange={e => setTargetPct(Math.max(1, Math.min(100, +e.target.value)))} onFocus={e => e.target.select()} />
+              <span className="small">%</span>
+            </div>
+            <div className="small muted" style={{ marginTop: 2 }}>{targetTables.toLocaleString()} t · {targetMwp} MWp</div>
+          </div>
+          <div>
+            <div className="small muted" style={{ marginBottom: 2 }}>Target {tPct}%</div>
+            {stats ? (
+              <>
+                <div style={{ fontWeight: 600, color: statusColor }}>{fmt(stats.targetDay)}</div>
+                <div className="small muted" style={{ marginTop: 2 }}>{tPct}% = {targetMwp} MWp</div>
+              </>
+            ) : (
+              <div className="small" style={{ color: 'var(--warn)' }}>▶ Run simulation</div>
+            )}
+          </div>
+        </div>
+      </div>
 
       <Section title="MVPS priority & VRE threshold">
         <ZoneList zonePriority={zonePriority} setZonePriority={setZonePriority}
-          zoneThresholds={zoneThresholds} setZoneThresholds={setZoneThresholds} />
+          zoneThresholds={zoneThresholds} setZoneThresholds={setZoneThresholds}
+          snap={snap} />
       </Section>
 
-      <Section title="Deadline & target">
-        <div className="deadline-row">
-          <div>Completion deadline</div>
-          <input type="date" value={globalDeadline} onChange={e => setGlobalDeadline(e.target.value)} />
+      <Section title="Manpower calculator" defaultOpen={false}>
+        <div className="card" style={{ fontSize: 11 }}>
+          <div className="small muted" style={{ marginBottom: 6 }}>Workers needed to finish by a target date</div>
+          <ManpowerCalc stats={stats} today={today} generalRateMs={generalRateMs} generalRatePv={generalRatePv} sundayWorkersPct={sundayWorkersPct} />
         </div>
-        <div className="deadline-row">
-          <div>Target % of park</div>
-          <input type="number" min={1} max={100} value={targetPct} style={{ width: 60 }}
-            onChange={e => setTargetPct(Math.max(1, Math.min(100, +e.target.value)))} />
-        </div>
-        <div className="small">{targetTables.toLocaleString()} tables · {targetMwp} MWp of {TOTAL_MWP} MWp</div>
       </Section>
 
       <Section title="Daily workforce calendar" defaultOpen={false}>
-        <ModeBar value={inputMode} onChange={handleModeChange} />
-        <div className="small" style={{ marginBottom: 6 }}>Leave blank to use base value.</div>
+        <div className="small" style={{ marginBottom: 6 }}>Leave blank to use base manpower.</div>
         <WorkforceCalendar
-          inputMode={inputMode} activeSubs={activeSubs}
           globalDeadline={globalDeadline}
           generalCalOverrides={generalCalOverrides} setGeneralCalOverrides={setGeneralCalOverrides}
-          perSubCalOverrides={perSubCalOverrides} setPerSubCalOverrides={setPerSubCalOverrides}
           today={today}
         />
       </Section>
@@ -293,5 +224,56 @@ export default function LeftPanel({
       <button className="run" onClick={onRun}>▶ Run simulation</button>
       {simReady && <div className="small" style={{ marginTop: 6, textAlign: 'center' }}>{simDays} days computed.</div>}
     </div>
+  )
+}
+
+// ── Manpower calculator ──────────────────────────────────────────────────────
+
+function ManpowerCalc({ stats, today, generalRateMs, generalRatePv, sundayWorkersPct }) {
+  const [targetDate, setTargetDate] = useState(() => {
+    const d = new Date(today); d.setDate(d.getDate() + 180); return d.toISOString().slice(0, 10)
+  })
+
+  const result = (() => {
+    const end = new Date(targetDate)
+    const start = new Date(today)
+    if (end <= start) return null
+    let workDays = 0
+    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+      workDays += d.getDay() === 0 ? sundayWorkersPct / 100 : 1
+    }
+    if (workDays <= 0 || !stats) return null
+    const wdMs = generalRateMs > 0 ? stats.totalMs / generalRateMs : 0
+    const wdPv = generalRatePv > 0 ? stats.totalPv / generalRatePv : 0
+    const workers = (wdMs + wdPv) / workDays
+    return { workDays: Math.round(workDays), workers }
+  })()
+
+  const calDays = Math.round((new Date(targetDate) - new Date(today)) / 86400000)
+
+  return (
+    <>
+      <div className="deadline-row">
+        <div>Target date</div>
+        <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
+      </div>
+      {result ? (
+        <div style={{ marginTop: 6, padding: '6px 8px', background: 'var(--bg)', borderRadius: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+            <span className="muted">Calendar days</span><span>{calDays}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span className="muted">Working days</span><span>{result.workDays}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13 }}>
+            <span>Workers needed</span>
+            <span style={{ color: 'var(--accent)' }}>{Math.ceil(result.workers)}</span>
+          </div>
+          <div className="small muted" style={{ marginTop: 3 }}>≈ {result.workers.toFixed(1)} · rounded up</div>
+        </div>
+      ) : (
+        <div className="small muted" style={{ marginTop: 4 }}>Run simulation first, then set a future date.</div>
+      )}
+    </>
   )
 }

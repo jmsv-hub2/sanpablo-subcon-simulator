@@ -30,8 +30,9 @@ function params(tables, overrides = {}) {
 
 // ─── msDone / pvDone ──────────────────────────────────────────────────────────
 
-test('msDone is false below ph 4, true at ph 4+', () => {
-  assert.equal(msDone(tbl('t', 1, 3)), false);
+test('msDone is false below ph 3, true at ph 3+ (ph 3 = MS pending inspection)', () => {
+  assert.equal(msDone(tbl('t', 1, 2)), false);
+  assert.equal(msDone(tbl('t', 1, 3)), true);
   assert.equal(msDone(tbl('t', 1, 4)), true);
   assert.equal(msDone(tbl('t', 1, 6)), true);
 });
@@ -91,16 +92,19 @@ test('simulate: zone with all tables already PV-done completes on day 1', () => 
   assert.equal(zoneSatisfiedDay[1],  1);
 });
 
-test('simulate: full-pipeline sub finishes 3-table zone in one day when capacity exceeds work', () => {
+test('simulate: full-pipeline sub finishes 3-table zone in two days (inspection gap)', () => {
   // 3 tables need MS+PV. Sub has workers=10 (capacity >> 3).
-  // Day 1: 3 MS done (3 worker-days), 7 leftover → 3 pvB consumed. All done.
+  // Day 1: 3 MS done → pvPending=3 (inspection gap; PV not eligible yet).
+  // Day 2: pvPending promoted to pvB; all 3 PV done. Zone complete on day 2.
   const tables = [tbl('A', 1, 0), tbl('B', 1, 0), tbl('C', 1, 0)];
   const { zoneCompletionDay, snapshots } = simulate(params(tables, {
     activeSubs: [{ name: 'S1', workers: 10, prodMs: 1, prodPv: 1, pvOnly: false }],
   }));
-  assert.equal(zoneCompletionDay[1], 1);
-  assert.equal(snapshots[1].remaining[1].ms,  0);
-  assert.equal(snapshots[1].remaining[1].pvB, 0);
+  assert.equal(zoneCompletionDay[1], 2, 'inspection gap means PV on day 2 at earliest');
+  assert.equal(snapshots[1].remaining[1].ms,        0, 'all MS done after day 1');
+  assert.equal(snapshots[1].remaining[1].pvPending, 3, 'tables in inspection after day 1');
+  assert.equal(snapshots[1].remaining[1].pvB,       0, 'pvB zero until inspection clears');
+  assert.equal(snapshots[2].remaining[1].pvB,       0, 'all PV done by end of day 2');
 });
 
 test('simulate: no active subs → no work done, no zone ever completes', () => {
@@ -110,21 +114,25 @@ test('simulate: no active subs → no work done, no zone ever completes', () => 
   for (let i = 1; i <= 5; i++) assert.equal(snapshots[i].remaining[1].ms, 1);
 });
 
-// ─── simulate: pool A / pool B isolation ─────────────────────────────────────
+// ─── simulate: pool A / pool B handling ──────────────────────────────────────
 
-test('simulate: full-pipeline sub never drains pool A (pre-existing MS-done tables)', () => {
-  // 2 tables at ph=4 are pool A; full-pipeline sub has no MS or pvB work → stays idle.
+test('simulate: full-pipeline sub drains pool A with leftover capacity when no pvOnly subs', () => {
+  // 2 tables at ph=4 are pool A; full-pipeline sub has no MS or pvB work.
+  // With new design: leftover capacity after pvB is applied to pvA.
   const tables = [tbl('A', 1, 4), tbl('B', 1, 4)];
-  const { snapshots } = simulate(params(tables, {
+  const { zoneCompletionDay, snapshots } = simulate(params(tables, {
     maxDays: 5,
     activeSubs: [{ name: 'S1', workers: 10, prodMs: 1, prodPv: 1, pvOnly: false }],
   }));
-  for (let i = 1; i < snapshots.length; i++)
-    assert.equal(snapshots[i].remaining[1].pvA, 2, `pvA must stay 2 on day ${i}`);
+  assert.equal(zoneCompletionDay[1], 1, 'zone completes day 1 — full sub consumes pvA');
+  assert.equal(snapshots[1].remaining[1].pvA, 0);
 });
 
-test('simulate: pvOnly sub drains pool A; full-pipeline sub drains pool B; no cross-contamination', () => {
+test('simulate: full-pipeline sub drains pool A with leftover; pvPending holds newly MS-done tables', () => {
   // Zone: 2 tables ph=4 (pool A), 2 tables ph=0 (pool B via simulation)
+  // Day 1: pvOnly sub (PVo) processes first → consumes pvA=2. Full: pvAvail=0 → all workers
+  //        to MS → B1,B2 MS'd (pvPending=2). PVo gets nothing from pvB (pvB=0).
+  // Day 2: pvPending promoted to pvB=2; PVo drains pvB. Zone done day 2.
   const tables = [tbl('A1', 1, 4), tbl('A2', 1, 4), tbl('B1', 1, 0), tbl('B2', 1, 0)];
   const { zoneCompletionDay, snapshots } = simulate(params(tables, {
     activeSubs: [
@@ -132,19 +140,17 @@ test('simulate: pvOnly sub drains pool A; full-pipeline sub drains pool B; no cr
       { name: 'PVo',  workers: 10, prodMs: 0, prodPv: 1, pvOnly: true  },
     ],
   }));
-  assert.equal(zoneCompletionDay[1], 1, 'all done in one day');
-  const s = snapshots[1];
-  // pvQueueA touched only by PVo
-  assert.equal(s.pvQueueA[1].length, 1);
-  assert.equal(s.pvQueueA[1][0].sub, 'PVo');
-  // msQueue touched only by Full
-  assert.equal(s.msQueue[1].length, 1);
-  assert.equal(s.msQueue[1][0].sub, 'Full');
+  assert.equal(zoneCompletionDay[1], 2, 'inspection gap: pvB tables done on day 2');
+  const s1 = snapshots[1];
+  assert.equal(s1.msQueue[1][0].sub, 'Full');
+  assert.equal(s1.remaining[1].pvA,       0, 'pvA consumed day 1 by pvOnly sub');
+  assert.equal(s1.remaining[1].pvPending, 2, 'newly MS-done tables in inspection');
+  assert.equal(snapshots[2].remaining[1].pvB, 0, 'all done by day 2');
 });
 
-test('simulate: pvOnly sub drains pool A first, then spills into pool B', () => {
-  // Full (workers=1) does MS on 1 table but no leftover for PV → pvB=1 left.
-  // PVo (workers=2) drains pvA=1 then pvB=1 within the same day.
+test('simulate: pvOnly sub drains pool A day 1; Full sub drains pool B day 2 (inspection gap)', () => {
+  // Day 1: Full (w=1) does MS on PB → pvPending=1. PVo (w=2) drains pvA=1.
+  // Day 2: pvPending→pvB=1. Full (or PVo) drains pvB. Zone done day 2.
   const tables = [tbl('PA', 1, 4), tbl('PB', 1, 0)];
   const { zoneCompletionDay, snapshots } = simulate(params(tables, {
     activeSubs: [
@@ -152,25 +158,29 @@ test('simulate: pvOnly sub drains pool A first, then spills into pool B', () => 
       { name: 'PVo',  workers: 2, prodMs: 0, prodPv: 1, pvOnly: true  },
     ],
   }));
-  assert.equal(zoneCompletionDay[1], 1);
-  const s = snapshots[1];
-  assert.equal(s.pvQueueA[1][0].sub, 'PVo');
-  assert.equal(s.pvQueueA[1][0].count, 1);
-  // PVo also appeared in pvQueueB (spill after pvA exhausted)
-  assert.ok(s.pvQueueB[1].some(e => e.sub === 'PVo' && e.count === 1));
+  assert.equal(zoneCompletionDay[1], 2, 'inspection gap: pvB not available until day 2');
+  const s1 = snapshots[1];
+  assert.equal(s1.pvQueueA[1][0].sub,   'PVo', 'pvA consumed by pvOnly sub');
+  assert.equal(s1.pvQueueA[1][0].count, 1);
+  assert.equal(s1.remaining[1].pvA,       0);
+  assert.equal(s1.remaining[1].pvPending, 1, 'PB in inspection after day 1 MS');
+  assert.equal(snapshots[2].remaining[1].pvB, 0, 'pvB drained on day 2');
 });
 
 // ─── simulate: VRE threshold ──────────────────────────────────────────────────
 
 test('simulate: VRE threshold <100% causes sub to switch zones before A is fully done', () => {
-  // Zone A: 20 tables ph=0. Threshold=50%.
+  // Zone A: 20 tables ph=0. Threshold=50% (needs 10 PV done).
   // Zone B: 5 tables ph=0.  Threshold=100%.
-  // Sub: workers=10, prodMs=1, prodPv=1.
+  // Sub: workers=10, prodMs=1, prodPv=1 (parallel crews model).
   //
-  // Day 1+2: sub does MS on A (10/day). After day 2: all 20 MS done, pvB=20.
-  // Day 3: sub drains 10 pvB on A → 10 done / 20 total = 50%. zoneSatisfiedDay[A]=3.
-  // Day 4: sub moves to B (A is satisfied). Finishes B entirely. zoneCompletionDay[B]=4.
-  // Day 5: sub mops up A's remaining pvB=10. zoneCompletionDay[A]=5.
+  // Day 1: pvAvail_A=0 → all 10 workers do MS. A.ms=10, A.pvPending=10.
+  // Day 2: pvPending→pvB=10. pvWorkersNeeded=10 → all 10 do PV. A.pvB=0, ms=0.
+  //        pvDone=10/20=50% ≥ threshold → zoneSatisfiedDay[A]=2.
+  // Day 3: A satisfied → sub moves to B. pvAvail_B=0 → 10 workers do MS. B.ms=0, B.pvPending=5.
+  // Day 4: B.pvPending→pvB=5. pvWorkersNeeded=5 → 5 do PV. B.pvB=0. B done.
+  //        allTargetsMet (A sat+clear, B sat+clear) → sim breaks on day 4.
+  //        zoneCompletionDay[B]=4. A.ms=10 still remaining → zoneCompletionDay[A] not set.
   const tablesA = Array.from({ length: 20 }, (_, i) => tbl(`A${i}`, 'A', 0, i, 0));
   const tablesB = Array.from({ length: 5  }, (_, i) => tbl(`B${i}`, 'B', 0, i, 0));
   const { zoneSatisfiedDay, zoneCompletionDay } = simulate({
@@ -183,9 +193,9 @@ test('simulate: VRE threshold <100% causes sub to switch zones before A is fully
     startDate:          '2025-01-01',
     maxDays:            30,
   });
-  assert.equal(zoneSatisfiedDay['A'],   3);
-  assert.equal(zoneCompletionDay['B'],  4, 'B finishes while A still has pvB backlog');
-  assert.equal(zoneCompletionDay['A'],  5, 'A mop-up done after B');
+  assert.equal(zoneSatisfiedDay['A'],  2, 'A threshold met on day 2 (parallel PV crew clears pvB)');
+  assert.equal(zoneCompletionDay['B'], 4, 'B fully done on day 4');
+  assert.equal(zoneCompletionDay['A'], undefined, 'A not fully done — sim stops at VRE targets, not 100%');
 });
 
 // ─── simulate: workforce overrides ───────────────────────────────────────────
@@ -199,15 +209,18 @@ test('simulate: override to 0 on day 1 means no work is done that day', () => {
   assert.equal(snapshots[1].remaining[1].ms, 1, 'ms unchanged when overridden to 0 workers');
 });
 
-test('simulate: override to enough workers on day 1 finishes everything in that day', () => {
-  // 20 tables ph=0; base workers=1 (takes 40 days). Override to 40 on day 1:
-  // 20 worker-days → MS all 20 tables (leftover=20 worker-days) → PV all 20 via leftover.
-  const tables = Array.from({ length: 20 }, (_, i) => tbl(`T${i}`, 1, 0, i, 0));
-  const { zoneCompletionDay } = simulate(params(tables, {
-    workforceOverrides: { 'S1|2025-01-02': 40 },
-    activeSubs: [{ name: 'S1', workers: 1, prodMs: 1, prodPv: 1, pvOnly: false }],
+test('simulate: override to enough workers on day 1 finishes MS; day 2 finishes PV', () => {
+  // 20 tables ph=0. Day 1 override = 40 workers: all 20 MS done, pvPending=20.
+  // Day 2 (base=1 worker): pvPending→pvB=20; 1 worker does 1 PV/day → takes 20 more days.
+  // Verify: MS all done after day 1, zone not complete until pvB drained.
+  const tables = Array.from({ length: 3 }, (_, i) => tbl(`T${i}`, 1, 0, i, 0));
+  const { zoneCompletionDay, snapshots } = simulate(params(tables, {
+    workforceOverrides: { 'S1|2025-01-02': 10 }, // day 1 override: 10 workers, 1/table → all 3 MS + 7 leftover
+    activeSubs: [{ name: 'S1', workers: 10, prodMs: 1, prodPv: 1, pvOnly: false }],
   }));
-  assert.equal(zoneCompletionDay[1], 1);
+  assert.equal(snapshots[1].remaining[1].ms,        0, 'all MS done on day 1');
+  assert.equal(snapshots[1].remaining[1].pvPending, 3, 'tables in inspection after day 1');
+  assert.equal(zoneCompletionDay[1], 2, 'PV done on day 2 after inspection clears');
 });
 
 // ─── deriveDay ────────────────────────────────────────────────────────────────
