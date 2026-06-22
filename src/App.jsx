@@ -5,6 +5,7 @@ import LeftPanel from './components/LeftPanel.jsx'
 import MapCanvas from './components/MapCanvas.jsx'
 import Legend from './components/Legend.jsx'
 import BottomStats from './components/BottomStats.jsx'
+import PlanTab from './components/PlanTab.jsx'
 
 const TODAY = new Date().toISOString().slice(0, 10)
 function defaultDeadline() {
@@ -18,10 +19,13 @@ export function fmtDate(startDate, dayOffset) {
 
 export default function App() {
   // ── General manpower inputs ──
-  const [generalWorkers,    setGeneralWorkers]    = useState(200)
+  const [generalWorkers,    setGeneralWorkers]    = useState(250)
   const [generalRateMs,     setGeneralRateMs]     = useState(0.5)
   const [generalRatePv,     setGeneralRatePv]     = useState(0.4)
-  const [sundayWorkersPct,  setSundayWorkersPct]  = useState(100)
+  const [sundayWorkersPct,  setSundayWorkersPct]  = useState(0)
+
+  // ── Worker batches (additive from a start date) ──
+  const [workerBatches, setWorkerBatches] = useState([])
 
   // ── Zones ──
   const [zonePriority,   setZonePriority]   = useState([...ZONES])
@@ -34,42 +38,48 @@ export default function App() {
   const [globalDeadline, setGlobalDeadline] = useState(defaultDeadline)  // eslint-disable-line no-unused-vars
   const [targetPct,      setTargetPct]      = useState(80)
 
-  // ── Calendar overrides ──
+  // ── Per-day absolute overrides ──
   const [generalCalOverrides, setGeneralCalOverrides] = useState({})
 
   // ── Layer toggles ──
-  const [layerPhase,  setLayerPhase]  = useState(true)
-  const [layerLabels, setLayerLabels] = useState(true)
+  const [layerLabels,      setLayerLabels]      = useState(true)
+  const [layerTableLabels, setLayerTableLabels] = useState(false)
 
   // ── Simulation result ──
   const [sim,    setSim]    = useState(null)
   const [dayIdx, setDayIdx] = useState(0)
 
-  // ── Single crew — all workers in one group ──
+  // ── Single crew ──
   const activeSubs = useMemo(() => [{
     name: 'Crew', workers: generalWorkers,
     prodMs: generalRateMs, prodPv: generalRatePv, pvOnly: false,
   }], [generalWorkers, generalRateMs, generalRatePv])
 
-  // ── Workforce overrides for the engine ──
+  // ── Workforce overrides: Sunday reduction + batches + per-day overrides ──
   const workforceOverrides = useMemo(() => {
     const result = {}
-    if (sundayWorkersPct < 100) {
+    const hasBatches = workerBatches.length > 0
+    const hasSundayReduction = sundayWorkersPct < 100
+
+    if (hasSundayReduction || hasBatches) {
       const end = new Date(globalDeadline)
-      const d = new Date(TODAY)
-      while (d <= end) {
-        if (d.getDay() === 0) {
-          const dateStr = d.toISOString().slice(0, 10)
-          result[`Crew|${dateStr}`] = Math.floor(generalWorkers * sundayWorkersPct / 100)
-        }
-        d.setDate(d.getDate() + 1)
+      for (let d = new Date(TODAY), i = 0; d <= end && i < 800; d.setDate(d.getDate() + 1), i++) {
+        const dateStr = d.toISOString().slice(0, 10)
+        const isSunday = d.getDay() === 0
+        let workers = isSunday ? Math.round(generalWorkers * sundayWorkersPct / 100) : generalWorkers
+        const batchTotal = workerBatches
+          .filter(b => b.fromDate <= dateStr)
+          .reduce((s, b) => s + b.count, 0)
+        workers += batchTotal
+        if (workers !== generalWorkers) result[`Crew|${dateStr}`] = workers
       }
     }
+    // Per-day absolute overrides replace everything
     Object.entries(generalCalOverrides).forEach(([date, w]) => {
       result[`Crew|${date}`] = w
     })
     return result
-  }, [generalWorkers, sundayWorkersPct, globalDeadline, generalCalOverrides])
+  }, [generalWorkers, sundayWorkersPct, globalDeadline, generalCalOverrides, workerBatches])
 
   // ── Initial render: show real data state ──
   useEffect(() => {
@@ -87,7 +97,7 @@ export default function App() {
     const result = simulate({ tables: TABLES, zones: ZONES, zonePriority, zoneThresholds, activeSubs, workforceOverrides, startDate: TODAY, maxDays: 800, globalTargetTables })
     setSim(result)
     setDayIdx(0)
-  }, [zonePriority, zoneThresholds, activeSubs, workforceOverrides])
+  }, [zonePriority, zoneThresholds, activeSubs, workforceOverrides, targetPct])
 
   // ── Derived visual state ──
   const derived = useMemo(() => {
@@ -98,8 +108,9 @@ export default function App() {
   const snap = sim?.snapshots[dayIdx] ?? null
 
   // ── Stats ──
+  const simReady = !!sim && sim.snapshots.length > 1
   const stats = useMemo(() => {
-    if (!sim || !derived || !snap) return null
+    if (!simReady || !derived || !snap) return null
 
     // Work still needed globally to reach targetPct% of the total park
     const tPct         = Math.max(1, Math.min(100, targetPct))
@@ -116,19 +127,23 @@ export default function App() {
     const totalPv = pvGap
     const totalMs = Math.max(0, pvGap - pvAGlobal)
 
-    const pvDoneCount   = TABLES.filter(t => derived.phase[t.id] >= 5).length
-    const completedMwp  = pvDoneCount * MWP_PER_TABLE
-    let targetDay = null
+    const pvDoneCount  = TABLES.filter(t => derived.phase[t.id] >= 5).length
+    const completedMwp = pvDoneCount * MWP_PER_TABLE
+
+    // Scan snapshots once for both the intermediate target date and 100% completion date
+    let targetDay = null, fullTargetDay = null
     for (const s of sim.snapshots) {
       let done = 0
       ZONES.forEach(z => { done += TABLES_BY_ZONE[z].length - s.remaining[z].ms - s.remaining[z].pvA - s.remaining[z].pvB - (s.remaining[z].pvPending || 0) })
-      if (done >= targetTables) { targetDay = s.day; break }
+      if (targetDay === null && done >= targetTables) targetDay = s.day
+      if (fullTargetDay === null && done >= TOTAL_TABLES) { fullTargetDay = s.day; break }
     }
+
     const targetDate   = targetDay !== null ? (() => { const d = new Date(TODAY); d.setDate(d.getDate() + targetDay); return d })() : null
     const targetStatus = targetDate ? (targetDate <= new Date(globalDeadline) ? 'ok' : 'bad') : 'unknown'
 
-    return { totalMs, totalPv, pvDoneCount, completedMwp, targetDay, targetStatus, tPct, targetTables }
-  }, [sim, derived, snap, globalDeadline, targetPct, zoneThresholds])
+    return { totalMs, totalPv, pvDoneCount, completedMwp, targetDay, fullTargetDay, targetStatus, tPct, targetTables }
+  }, [sim, simReady, derived, snap, globalDeadline, targetPct, zoneThresholds])
 
   // ── Daily throughput ──
   const dailyThroughput = useMemo(() => {
@@ -147,6 +162,37 @@ export default function App() {
 
   const fmt = (offset) => offset !== null && offset !== undefined ? fmtDate(TODAY, offset) : '—'
 
+  // ── Tab state ──
+  const [activeTab, setActiveTab] = useState('map') // 'map' | 'plan'
+
+  // ── MSPV plan (per-day table assignments) ──
+  const planData = useMemo(() => {
+    if (!simReady) return null
+    const allDerived = sim.snapshots.map(s => deriveDay(s, TABLES_BY_ZONE, ZONES))
+    const startDate = new Date(TODAY)
+    return sim.snapshots.slice(1).map((snap, i) => {
+      const prev = allDerived[i]
+      const curr = allDerived[i + 1]
+      const msToday = Object.fromEntries(ZONES.map(z => [z, []]))
+      const pvToday = Object.fromEntries(ZONES.map(z => [z, []]))
+      ZONES.forEach(z => {
+        TABLES_BY_ZONE[z].forEach(t => {
+          const pp = prev.phase[t.id], cp = curr.phase[t.id]
+          if (pp < 3 && cp >= 3) msToday[z].push(t.id)
+          if (pp < 5 && cp >= 5) pvToday[z].push(t.id)
+        })
+      })
+      const msCount = ZONES.reduce((s, z) => s + msToday[z].length, 0)
+      const pvCount = ZONES.reduce((s, z) => s + pvToday[z].length, 0)
+      const d = new Date(startDate); d.setDate(d.getDate() + snap.day)
+      const dateStr = d.toISOString().slice(0, 10)
+      const workers = workforceOverrides[`Crew|${dateStr}`] ?? generalWorkers
+      const msWorkers = generalRateMs > 0 ? Math.round(msCount / generalRateMs) : 0
+      const pvWorkers = generalRatePv > 0 ? Math.round(pvCount / generalRatePv) : 0
+      return { day: snap.day, dateStr, workers, msCount, pvCount, msWorkers, pvWorkers, msToday, pvToday }
+    }).filter(d => d.msCount > 0 || d.pvCount > 0)
+  }, [sim, simReady, workforceOverrides, generalWorkers, generalRateMs, generalRatePv])
+
   return (
     <>
       <LeftPanel
@@ -154,46 +200,62 @@ export default function App() {
         generalRateMs={generalRateMs}   setGeneralRateMs={setGeneralRateMs}
         generalRatePv={generalRatePv}   setGeneralRatePv={setGeneralRatePv}
         sundayWorkersPct={sundayWorkersPct} setSundayWorkersPct={setSundayWorkersPct}
+        workerBatches={workerBatches} setWorkerBatches={setWorkerBatches}
         snap={snap} stats={stats} fmt={fmt}
         zonePriority={zonePriority} setZonePriority={setZonePriority}
         zoneThresholds={zoneThresholds} setZoneThresholds={setZoneThresholds}
         globalDeadline={globalDeadline}
         targetPct={targetPct} setTargetPct={setTargetPct}
         generalCalOverrides={generalCalOverrides} setGeneralCalOverrides={setGeneralCalOverrides}
-        onRun={runSim} simReady={!!sim && sim.snapshots.length > 1}
+        onRun={runSim} simReady={simReady}
         simDays={sim ? sim.snapshots.length - 1 : 0}
         today={TODAY}
       />
 
       <div className="main-col">
         <div className="topbar">
-          <div>
-            <div className="daylabel">Day {dayIdx}</div>
-            <div className="datelabel">{fmtDate(TODAY, dayIdx)}</div>
+          {/* Tab switcher */}
+          <div className="tab-switcher">
+            <button className={`tab-btn${activeTab === 'map' ? ' active' : ''}`} onClick={() => setActiveTab('map')}>Map</button>
+            <button className={`tab-btn${activeTab === 'plan' ? ' active' : ''}`} onClick={() => setActiveTab('plan')}>
+              MSPV Plan {simReady && planData && <span className="tab-badge">{planData.length}d</span>}
+            </button>
           </div>
-          <input id="slider" type="range" min={0} max={sim ? sim.snapshots.length - 1 : 0} value={dayIdx}
-            onChange={e => setDayIdx(+e.target.value)} disabled={!sim || sim.snapshots.length <= 1} style={{ flex: 1 }} />
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button className="daystep" onClick={() => setDayIdx(i => Math.max(0, i - 1))}>◀</button>
-            <button className="daystep" onClick={() => setDayIdx(i => Math.min((sim?.snapshots.length ?? 1) - 1, i + 1))}>▶</button>
-          </div>
+
+          {activeTab === 'map' && <>
+            <div>
+              <div className="daylabel">Day {dayIdx}</div>
+              <div className="datelabel">{fmtDate(TODAY, dayIdx)}</div>
+            </div>
+            <input id="slider" type="range" min={0} max={sim ? sim.snapshots.length - 1 : 0} value={dayIdx}
+              onChange={e => setDayIdx(+e.target.value)} disabled={!sim || sim.snapshots.length <= 1} style={{ flex: 1 }} />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="daystep" onClick={() => setDayIdx(i => Math.max(0, i - 1))}>◀</button>
+              <button className="daystep" onClick={() => setDayIdx(i => Math.min((sim?.snapshots.length ?? 1) - 1, i + 1))}>▶</button>
+            </div>
+          </>}
         </div>
 
-        <div className="map-area">
-          <MapCanvas
-            derived={derived}
-            layerPhase={layerPhase}   setLayerPhase={setLayerPhase}
-            layerLabels={layerLabels} setLayerLabels={setLayerLabels}
-            zoneSatisfiedDay={sim?.zoneSatisfiedDay} dayIdx={dayIdx}
-          />
-          <Legend />
-        </div>
-
-        <BottomStats
-          sim={sim} stats={stats} snap={snap} fmt={fmt}
-          zonePriority={zonePriority} zoneThresholds={zoneThresholds}
-          dayIdx={dayIdx} dailyThroughput={dailyThroughput}
-        />
+        {activeTab === 'map' ? (
+          <>
+            <div className="map-area">
+              <MapCanvas
+                derived={derived}
+                layerLabels={layerLabels} setLayerLabels={setLayerLabels}
+                layerTableLabels={layerTableLabels} setLayerTableLabels={setLayerTableLabels}
+                zoneSatisfiedDay={sim?.zoneSatisfiedDay} dayIdx={dayIdx}
+              />
+              <Legend />
+            </div>
+            <BottomStats
+              sim={sim} stats={stats} snap={snap} fmt={fmt}
+              zonePriority={zonePriority} zoneThresholds={zoneThresholds}
+              dayIdx={dayIdx} dailyThroughput={dailyThroughput}
+            />
+          </>
+        ) : (
+          <PlanTab planData={planData} zones={ZONES} today={TODAY} />
+        )}
       </div>
     </>
   )

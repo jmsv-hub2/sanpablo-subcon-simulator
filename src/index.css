@@ -73,6 +73,49 @@ canvas:active { cursor: grabbing; }
 .daystep { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 5px; width: 28px; height: 28px; cursor: pointer; font-size: 13px; flex: none; }
 #slider { flex: 1; }
 
+/* ── Stat rows (Workers, Sundays) ────────────────────────────────────────── */
+.stat-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.stat-lbl { font-size: 11px; color: var(--muted); font-weight: 500; }
+.stat-val-input { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 20px; font-weight: 700; text-align: right; width: 100px; }
+.stat-val-sm { font-size: 16px !important; width: 60px !important; padding: 4px 8px !important; }
+.stat-unit { font-size: 13px; color: var(--muted); }
+.stat-hint { font-size: 10px; color: var(--muted); margin-top: -6px; margin-bottom: 10px; text-align: right; }
+
+/* ── MS / PV rate boxes ──────────────────────────────────────────────────── */
+.rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.rate-box { border-radius: 8px; border: 1px solid var(--line); border-top-width: 3px; background: var(--panel2); padding: 10px 10px 8px; display: flex; flex-direction: column; align-items: center; }
+.rate-box-ms { border-top-color: var(--warn); }
+.rate-box-pv { border-top-color: var(--accent); }
+.rate-box-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; align-self: flex-start; }
+.rate-box-input { background: transparent !important; border: none !important; border-bottom: 1px solid var(--line) !important; border-radius: 0 !important; color: var(--text); font-size: 28px; font-weight: 700; text-align: center; width: 100% !important; padding: 0 0 5px; outline: none; }
+.rate-box-input:focus { border-bottom-color: var(--accent) !important; }
+.rate-box-unit { font-size: 9px; color: var(--muted); margin-top: 6px; text-align: center; line-height: 1.3; }
+.rate-box-cap { font-size: 11px; font-weight: 600; margin-top: 5px; text-align: center; }
+
+/* ── Target / completion card ────────────────────────────────────────────── */
+.tc-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+.tc-top { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px 10px; }
+.tc-eyebrow { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+.tc-pct-row { display: flex; align-items: baseline; gap: 5px; }
+.tc-pct-input { background: transparent; border: none; border-bottom: 2px solid var(--line); border-radius: 0; color: var(--text); font-size: 36px; font-weight: 800; width: 72px; text-align: right; padding: 0 0 2px; outline: none; }
+.tc-pct-input:focus { border-bottom-color: var(--accent); }
+.tc-pct-sign { font-size: 22px; color: var(--muted); font-weight: 600; }
+.tc-sub { font-size: 10px; color: var(--muted); margin-top: 6px; white-space: nowrap; }
+.tc-date-block { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.tc-date { font-size: 14px; font-weight: 700; white-space: nowrap; line-height: 1.2; text-align: right; }
+.tc-date-empty { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; text-align: right; }
+.tc-divider { height: 1px; background: var(--line); }
+.tc-global-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: rgba(255,255,255,.03); }
+.tc-global-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.tc-global-val { font-size: 12px; font-weight: 600; }
+.tc-global-empty { font-size: 12px; color: var(--muted); letter-spacing: .1em; }
+
+/* legacy — keep for zone-row vre input */
+.mp-rate-input { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 3px 5px; font-size: 12px; font-weight: 600; text-align: right; width: 46px; flex-shrink: 0; }
+
+/* ── Zone done badge ─────────────────────────────────────────────────────── */
+.zc-done-badge { font-size: 9px; font-weight: 700; color: var(--ok); background: rgba(62,207,142,.15); border-radius: 3px; padding: 1px 4px; white-space: nowrap; }
+
 /* ── Left panel elements ─────────────────────────────────────────────────── */
 h1  { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
 .small { font-size: 10px; color: var(--muted); }
@@ -93,7 +136,7 @@ h1  { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
 .sub-name { display: flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
 
-input[type=text], input[type=number] { width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 3px 4px; font-size: 11px; }
+input[type=text], input[type=number] { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 3px 4px; font-size: 11px; }
 input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 input[type=number] { -moz-appearance: textfield; }
 input[type=date] { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 3px 5px; font-size: 11px; }
@@ -113,6 +156,65 @@ input[type=date] { background: var(--panel2); border: 1px solid var(--line); col
 
 button.run { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 8px; }
 button.run:hover { opacity: .9; }
+
+/* ── Tab switcher ────────────────────────────────────────────────────────── */
+.tab-switcher { display: flex; gap: 2px; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 2px; flex-shrink: 0; }
+.tab-btn { background: none; border: none; color: var(--muted); border-radius: 5px; padding: 4px 12px; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
+.tab-badge { background: rgba(255,255,255,.2); border-radius: 8px; padding: 0 5px; font-size: 10px; margin-left: 5px; }
+
+/* ── MSPV Plan tab ───────────────────────────────────────────────────────── */
+.plan-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+.plan-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); }
+.plan-empty-icon { font-size: 32px; opacity: .3; }
+.plan-empty-msg { font-size: 13px; }
+
+.plan-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; background: var(--panel); }
+.plan-summary { display: flex; align-items: center; gap: 0; }
+.plan-stat { padding: 0 16px; text-align: center; }
+.plan-stat-val { display: block; font-size: 16px; font-weight: 700; }
+.plan-stat-lbl { font-size: 10px; color: var(--muted); }
+.plan-stat-div { width: 1px; background: var(--line); align-self: stretch; }
+.plan-actions { display: flex; align-items: center; gap: 8px; }
+.plan-search { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 10px; font-size: 11px; width: 200px; }
+.plan-search:focus { outline: none; border-color: var(--accent); }
+.plan-export-btn { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; font-weight: 500; }
+.plan-export-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.plan-cols { display: flex; align-items: center; padding: 5px 16px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--line); flex-shrink: 0; background: var(--panel2); }
+
+.plan-list { flex: 1; overflow-y: auto; }
+
+.plan-row { border-bottom: 1px solid var(--line); }
+.plan-row-sun { background: rgba(245,166,35,.04); }
+.plan-row-head { display: flex; align-items: center; padding: 8px 16px; gap: 10px; cursor: pointer; transition: background .1s; }
+.plan-row-head:hover { background: rgba(255,255,255,.03); }
+.plan-row-open .plan-row-head { background: rgba(91,140,255,.07); }
+
+.plan-day { font-size: 11px; color: var(--muted); width: 54px; flex-shrink: 0; }
+.plan-date { flex: 1; font-size: 12px; font-weight: 500; }
+.plan-workers { display: flex; align-items: center; gap: 6px; width: 160px; flex-shrink: 0; }
+.plan-workers-total { font-size: 13px; font-weight: 700; }
+.plan-workers-lbl { font-size: 10px; color: var(--muted); font-weight: 400; }
+.plan-badge { font-size: 9px; font-weight: 600; border-radius: 4px; padding: 1px 5px; }
+.plan-badge-ms { background: rgba(245,166,35,.2); color: var(--warn); }
+.plan-badge-pv { background: rgba(91,140,255,.2); color: var(--accent); }
+.plan-counts { display: flex; gap: 8px; width: 100px; flex-shrink: 0; }
+.plan-count-ms { font-size: 12px; font-weight: 600; color: var(--warn); }
+.plan-count-pv { font-size: 12px; font-weight: 600; color: var(--accent); }
+.plan-idle { font-size: 12px; color: var(--muted); }
+.plan-expand { font-size: 10px; color: var(--muted); width: 12px; text-align: center; flex-shrink: 0; }
+
+.plan-detail { padding: 0 16px 12px 72px; display: flex; flex-direction: column; gap: 8px; }
+.plan-zone-block { display: flex; flex-direction: column; gap: 3px; }
+.plan-zone-lbl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+.plan-ids-row { display: flex; align-items: baseline; gap: 8px; }
+.plan-ids-tag { font-size: 9px; font-weight: 700; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+.plan-ids-ms { background: rgba(245,166,35,.2); color: var(--warn); }
+.plan-ids-pv { background: rgba(91,140,255,.2); color: var(--accent); }
+.plan-ids { font-size: 10px; color: var(--muted); line-height: 1.5; word-break: break-all; }
 
 /* ── Pills ───────────────────────────────────────────────────────────────── */
 .pill { padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; }
@@ -151,14 +253,56 @@ button.run:hover { opacity: .9; }
 }
 .fit-btn:hover { color: var(--text); border-color: #4a4a6a; }
 
+/* ── Quick-calculator separator ─────────────────────────────────────────── */
+.qc-separator { height: 1px; background: var(--line); margin: 16px -14px 0; }
+.qc-separator + div .sec-head { color: var(--accent); opacity: .7; }
+
+/* ── VRE footer / reset ──────────────────────────────────────────────────── */
+.vre-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.reset-btn { background: var(--panel2); border: 1px solid var(--line); color: var(--muted); border-radius: 4px; padding: 3px 8px; font-size: 10px; cursor: pointer; }
+.reset-btn:hover { color: var(--text); border-color: var(--accent); }
+
+/* ── Quick calculator result ─────────────────────────────────────────────── */
+.qc-result { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; margin-top: 6px; }
+.qc-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.qc-divider { height: 1px; background: var(--line); margin: 8px 0; }
+.qc-main-row { display: flex; justify-content: space-between; align-items: baseline; }
+.qc-workers { font-size: 28px; font-weight: 800; color: var(--accent); line-height: 1; }
+.qc-note { font-size: 10px; color: var(--muted); text-align: right; margin-top: 3px; }
+
 /* ── Calendar ────────────────────────────────────────────────────────────── */
 #calWrap { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 6px; }
 table.cal { border-collapse: collapse; width: 100%; font-size: 10px; }
 table.cal th, table.cal td { padding: 3px 4px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
 table.cal th { position: sticky; top: 0; background: var(--panel2); z-index: 2; font-weight: 600; }
-table.cal td:first-child, table.cal th:first-child { position: sticky; left: 0; background: var(--panel); text-align: left; z-index: 1; }
+table.cal td:first-child, table.cal th:first-child { position: sticky; left: 0; background: var(--panel); text-align: center; z-index: 1; }
 table.cal input { width: 38px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 3px; padding: 2px; font-size: 10px; text-align: center; }
 
 .collapsible-head { cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; margin-top: 4px; }
 .collapsible-head .arrow { transition: transform .15s; }
 .collapsible-head.open .arrow { transform: rotate(90deg); }
+
+
+/* ── Crew list (workforce calendar) ──────────────────────────────────────── */
+.crew-list { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-bottom: 6px; }
+.crew-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 11px; border-bottom: 1px solid var(--line); }
+.crew-row:last-child { border-bottom: none; }
+.crew-base { background: var(--panel2); }
+.crew-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.crew-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crew-count { font-weight: 700; flex-shrink: 0; }
+.crew-meta  { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.crew-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0; line-height: 1; flex-shrink: 0; }
+.crew-remove:hover { color: var(--bad); }
+
+/* ── Crew add form (2-row card) ───────────────────────────────────────────── */
+.crew-add-card { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-bottom: 6px; }
+.crew-add-r1 { display: grid; grid-template-columns: 1fr 64px; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.crew-add-r2 { display: flex; gap: 8px; align-items: flex-end; padding: 8px 10px; }
+.crew-add-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.crew-add-lbl { font-size: 10px; color: var(--muted); }
+.crew-add-in { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 5px 7px; font-size: 11px; width: 100%; }
+.crew-add-in-sm { text-align: right; }
+.crew-add-btn { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.crew-add-btn:hover { opacity: .85; }
+.cal-overridden td { background: rgba(245,166,35,.07); }

@@ -47,7 +47,10 @@ function ZoneMatrix({ snap, sim, zonePriority, zoneThresholds, dayIdx, fmt }) {
               <div key={z} className={cls}>
                 <div className="zc-head">
                   <span className="zc-name">MVPS {z}</span>
-                  <span className="zc-rank">#{priorityRank[z]}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {isSatisfied && <span className="zc-done-badge">✓ VRE</span>}
+                    <span className="zc-rank">#{priorityRank[z]}</span>
+                  </div>
                 </div>
                 <div className="zc-bar">
                   <div className="zc-bar-fill" style={{ width: `${Math.min(100, pct).toFixed(1)}%` }} />

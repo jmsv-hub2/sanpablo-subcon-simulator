@@ -12,10 +12,11 @@ const ZONE_CENTROID = Object.fromEntries(
   })
 )
 
-export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLabels, setLayerLabels, zoneSatisfiedDay, dayIdx }) {
-  const canvasRef = useRef(null)
-  const viewRef   = useRef({ scale: 1, offX: 0, offY: 0 })
-  const panRef    = useRef({ active: false, startX: 0, startY: 0, offX0: 0, offY0: 0 })
+export default function MapCanvas({ derived, layerLabels, setLayerLabels, layerTableLabels, setLayerTableLabels, zoneSatisfiedDay, dayIdx }) {
+  const canvasRef   = useRef(null)
+  const viewRef     = useRef({ scale: 1, offX: 0, offY: 0 })
+  const panRef      = useRef({ active: false, startX: 0, startY: 0, offX0: 0, offY0: 0 })
+  const fitDoneRef  = useRef(false)
 
   const resetView = useCallback(() => {
     const canvas = canvasRef.current
@@ -35,7 +36,7 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
     return true
   }, [])
 
-  const draw = useCallback((d, showPhase, showLabels) => {
+  const draw = useCallback((d, showLabels, showTableLabels) => {
     const canvas = canvasRef.current
     if (!canvas || !d) return
     const ctx = canvas.getContext('2d')
@@ -59,8 +60,8 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
     TABLES.forEach(t => {
       const tx = t.x + ROX, ty = t.y + ROY
       const ph = d.phase[t.id]
-      const fill   = showPhase ? (PHASE_COLOR[ph] ?? NEUTRAL_FILL)   : NEUTRAL_FILL
-      const stroke = showPhase ? (PHASE_BORDER[ph] ?? NEUTRAL_BORDER) : NEUTRAL_BORDER
+      const fill   = PHASE_COLOR[ph]  ?? NEUTRAL_FILL
+      const stroke = PHASE_BORDER[ph] ?? NEUTRAL_BORDER
       roundRectPath(tx, ty, RW, RH, 0.5)
       ctx.fillStyle = fill
       ctx.fill()
@@ -69,11 +70,25 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
       ctx.stroke()
     })
 
+    // Per-table ID labels
+    if (showTableLabels) {
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.font = `${Math.min(2.2, 2.2)}px Segoe UI`
+      ctx.fillStyle = 'rgba(255,255,255,0.65)'
+      TABLES.forEach(t => {
+        ctx.fillText(t.id, t.x + ROX + RW / 2, t.y + ROY + RH / 2)
+      })
+    }
+
+    // Zone centroid labels
     if (showLabels) {
       ZONES.forEach(z => {
         const c = ZONE_CENTROID[z]
         const satisfied = zoneSatisfiedDay && dayIdx !== undefined && zoneSatisfiedDay[z] !== undefined && zoneSatisfiedDay[z] <= dayIdx
         ctx.font = `bold ${12 / view.scale}px Segoe UI`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'alphabetic'
         ctx.fillStyle = satisfied ? 'rgba(74,222,128,.9)' : 'rgba(255,255,255,.5)'
         ctx.fillText('MVPS ' + z, c.x - 10 / view.scale, c.y - 8 / view.scale)
       })
@@ -82,29 +97,32 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
     ctx.restore()
   }, [zoneSatisfiedDay, dayIdx])
 
-  useEffect(() => {
-    if (viewRef.current.scale === 1 && viewRef.current.offX === 0) resetView()
-    draw(derived, layerPhase, layerLabels)
-  }, [derived, layerPhase, layerLabels, draw, resetView])
-
+  // Initial auto-fit: call resetView the first time the canvas has real dimensions
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ro = new ResizeObserver(() => {
-      // Only resize the canvas element; preserve the current pan/zoom transform.
-      // resetView() would reset scale/offset which disrupts user navigation.
       const wrap = canvas.parentElement
       const w = wrap.clientWidth, h = wrap.clientHeight
-      if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
-        canvas.width = w
-        canvas.height = h
-        draw(derived, layerPhase, layerLabels)
+      if (w > 0 && h > 0) {
+        if (!fitDoneRef.current) {
+          fitDoneRef.current = true
+          resetView()
+        } else if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w
+          canvas.height = h
+        }
+        draw(derived, layerLabels, layerTableLabels)
       }
     })
     ro.observe(canvas.parentElement)
     return () => ro.disconnect()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draw, derived, layerPhase, layerLabels])
+  }, [draw, derived, layerLabels, layerTableLabels])
+
+  useEffect(() => {
+    draw(derived, layerLabels, layerTableLabels)
+  }, [derived, layerLabels, layerTableLabels, draw])
 
   const onMouseDown = useCallback(e => {
     panRef.current = { active: true, startX: e.clientX, startY: e.clientY, offX0: viewRef.current.offX, offY0: viewRef.current.offY }
@@ -116,13 +134,13 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
       const p = panRef.current
       viewRef.current.offX = p.offX0 + (e.clientX - p.startX)
       viewRef.current.offY = p.offY0 + (e.clientY - p.startY)
-      draw(derived, layerPhase, layerLabels)
+      draw(derived, layerLabels, layerTableLabels)
     }
     const onUp = () => { panRef.current.active = false }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [draw, derived, layerPhase, layerLabels])
+  }, [draw, derived, layerLabels, layerTableLabels])
 
   const onWheel = useCallback(e => {
     e.preventDefault()
@@ -135,8 +153,8 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
     view.scale *= factor
     view.offX = mx - wx * view.scale
     view.offY = my - wy * view.scale
-    draw(derived, layerPhase, layerLabels)
-  }, [draw, derived, layerPhase, layerLabels])
+    draw(derived, layerLabels, layerTableLabels)
+  }, [draw, derived, layerLabels, layerTableLabels])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -149,14 +167,14 @@ export default function MapCanvas({ derived, layerPhase, setLayerPhase, layerLab
     <div className="map-wrap">
       <canvas ref={canvasRef} onMouseDown={onMouseDown} />
       <div className="layer-ctrl">
-        <button className={`layer-btn${layerPhase ? ' on' : ''}`} onClick={() => setLayerPhase(p => !p)}>
-          <span className="lb-pip" /> Phase colors
-        </button>
         <button className={`layer-btn${layerLabels ? ' on' : ''}`} onClick={() => setLayerLabels(p => !p)}>
           <span className="lb-pip" /> MVPS labels
         </button>
+        <button className={`layer-btn${layerTableLabels ? ' on' : ''}`} onClick={() => setLayerTableLabels(p => !p)}>
+          <span className="lb-pip" /> Table IDs
+        </button>
       </div>
-      <button className="fit-btn" onClick={() => { resetView(); draw(derived, layerPhase, layerLabels) }} title="Fit map to screen">⊡</button>
+      <button className="fit-btn" onClick={() => { resetView(); draw(derived, layerLabels, layerTableLabels) }} title="Fit map to screen">{'⊡'}</button>
     </div>
   )
 }

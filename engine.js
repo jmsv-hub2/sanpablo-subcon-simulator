@@ -101,16 +101,26 @@ export function simulate({
   };
   const zoneSatisfied = z => totalRemaining(z) <= 0 || pvDonePct(z) >= (zoneThresholds[z] ?? 100);
 
-  // On a satisfied zone, non-pvOnly subs only clear remaining pvA/pvB (no new MS).
-  const hasWorkForSub = (z, isPvOnly) => {
+  // Once a zone is VRE-satisfied, no further work is assigned there (MS or PV),
+  // unless we're in global-target chase mode (all VRE met, global target not yet reached).
+  const hasWorkForSub = (z, isPvOnly, chase = false) => {
+    if (zoneSatisfied(z) && !chase) return false;
     const r = remaining[z];
-    if (isPvOnly || zoneSatisfied(z)) return (r.pvA + r.pvB) > 0;
+    if (isPvOnly) return (r.pvA + r.pvB) > 0;
     return (r.pvA + r.pvB + r.ms) > 0;
   };
 
   for (let day = 1; day <= maxDays; day++) {
     // Promote yesterday's inspected MS → eligible for PV today (1-day inspection gap)
     zones.forEach(z => { remaining[z].pvB += remaining[z].pvPending; remaining[z].pvPending = 0; });
+
+    // Global-target chase: all VRE thresholds met but target % not yet reached → keep working.
+    const pvDoneNow = zones.reduce((s, z) => {
+      const r = remaining[z]; return s + totalByZone[z] - r.ms - r.pvA - r.pvB - (r.pvPending || 0);
+    }, 0);
+    const areAllVreMet   = zones.every(z => zoneSatisfied(z));
+    const isGlobalMet    = globalTargetTables <= 0 || pvDoneNow >= globalTargetTables;
+    const inGlobalChase  = areAllVreMet && !isGlobalMet;
 
     const assignment = {};
     zones.forEach(z => { assignment[z] = []; });
@@ -119,14 +129,20 @@ export function simulate({
     activeSubs.forEach(s => {
       const workers = workersOnDay(s.name, s.workers, day, workforceOverrides, startDate);
       if (workers <= 0) return;
-      let target = zonePriority.find(z => !zoneSatisfied(z) && hasWorkForSub(z, s.pvOnly));
-      if (target === undefined) target = zonePriority.find(z => hasWorkForSub(z, s.pvOnly));
+      let target;
+      if (inGlobalChase) {
+        // Chase mode: continue from the LAST zone in priority with remaining work
+        // (avoids jumping back to zone 1 when the last active zone still has tables)
+        const available = zonePriority.filter(z => hasWorkForSub(z, s.pvOnly, true));
+        target = available[available.length - 1];
+      } else {
+        target = zonePriority.find(z => !zoneSatisfied(z) && hasWorkForSub(z, s.pvOnly, false));
+        if (target === undefined) target = zonePriority.find(z => hasWorkForSub(z, s.pvOnly, false));
+      }
       if (target === undefined) return;
 
-      // pvB cleanup: first satisfied zone (different from primary) with pvB > 0.
-      // Workers split: some clear orphaned pvB, rest go to primary zone. No one sits idle.
-      const pvCleanupZone = s.pvOnly ? undefined
-        : zonePriority.find(z => z !== target && remaining[z].pvB > 0);
+      // Satisfied zones are fully abandoned — no pvB cleanup there.
+      const pvCleanupZone = undefined;
 
       subTargets.push({ name: s.name, zone: target, pvCleanupZone, workers, prodMs: s.prodMs, prodPv: s.prodPv, pvOnly: s.pvOnly });
       assignment[target].push(s.name);
@@ -189,12 +205,20 @@ export function simulate({
         if (consumedA > 0) { r.pvA -= consumedA; pvQueueA[st.zone].push({ sub: st.name, count: consumedA }); }
       }
 
-      // Step 3: MS on primary zone — capped to only what is needed to reach the VRE threshold.
-      // After today's PV, re-check satisfaction (may have just crossed the line).
+      // Re-evaluate chase after PV work: zone may have crossed its VRE threshold mid-day.
+      // Without this, workers go idle on the transition day even though the global target
+      // is still not reached.
+      const pvDonePostPV = zones.reduce((s, z) => {
+        const rz = remaining[z]; return s + totalByZone[z] - rz.ms - rz.pvA - rz.pvB - (rz.pvPending || 0);
+      }, 0);
+      const effectiveChase = inGlobalChase ||
+        (zones.every(z => zoneSatisfied(z)) && globalTargetTables > 0 && pvDonePostPV < globalTargetTables);
+
+      // Step 3: MS on primary zone — capped to VRE threshold unless in chase.
       let msWorkersUsed = 0;
-      if (!zoneSatisfied(st.zone)) {
+      if (!zoneSatisfied(st.zone) || effectiveChase) {
         const msWorkerDays = budget - pvWorkerDays;
-        const needed = msNeededForZone(st.zone);
+        const needed = effectiveChase ? r.ms : msNeededForZone(st.zone);
         if (msWorkerDays > 0.01 && r.ms > 0 && needed > 0) {
           const consumedMs = Math.min(r.ms, Math.min(needed, msWorkerDays * st.prodMs));
           if (consumedMs > 0) {
@@ -206,17 +230,13 @@ export function simulate({
         }
       }
 
-      // Step 4: Sweep remaining idle capacity — unsatisfied zones first, then satisfied.
-      // Unsatisfied zones get priority so workers aren't consumed by already-met zones
-      // while VRE targets elsewhere are still pending.
+      // Step 4: Sweep remaining idle capacity.
       let idle = budget - pvWorkerDays - msWorkersUsed;
-      const sweepOrder = [
-        ...zonePriority.filter(z => !zoneSatisfied(z)),
-        ...zonePriority.filter(z => zoneSatisfied(z)),
-      ].filter(z => z !== st.zone && z !== st.pvCleanupZone);
+      const sweepOrder = effectiveChase
+        ? [...zonePriority].reverse().filter(z => z !== st.zone)
+        : zonePriority.filter(z => z !== st.zone);
       for (const z of sweepOrder) {
         if (idle <= 0.01) break;
-        if (z === st.zone || z === st.pvCleanupZone) continue;
         const rz = remaining[z];
 
         // PV in this zone
@@ -234,9 +254,9 @@ export function simulate({
           }
         }
 
-        // MS in this zone (capped to VRE-needed)
-        if (idle > 0.01 && !zoneSatisfied(z) && rz.ms > 0 && st.prodMs > 0) {
-          const neededZ = msNeededForZone(z);
+        // MS in this zone (capped to VRE-needed, or uncapped in chase)
+        if (idle > 0.01 && (!zoneSatisfied(z) || effectiveChase) && rz.ms > 0 && st.prodMs > 0) {
+          const neededZ = effectiveChase ? rz.ms : msNeededForZone(z);
           if (neededZ > 0) {
             const consumedMsZ = Math.min(rz.ms, Math.min(neededZ, idle * st.prodMs));
             if (consumedMsZ > 0.01) {
@@ -264,18 +284,11 @@ export function simulate({
       pvQueueB: clone(pvQueueB),
     });
 
-    // Stop when all zones are VRE-satisfied AND no sim-created PV work remains
-    // AND the global target (if any) has been reached.
-    const allVreMet = zones.every(z => {
-      const r = remaining[z];
-      return zoneSatisfied(z) && r.pvPending < 0.01 && r.pvB < 0.01;
-    });
-    const pvDoneGlobal = zones.reduce((acc, z) => {
-      const r = remaining[z];
-      return acc + totalByZone[z] - r.ms - r.pvA - r.pvB - (r.pvPending || 0);
+    // Stop when all VRE targets met AND global target reached (or no global target set).
+    const pvDoneAfter = zones.reduce((s, z) => {
+      const r = remaining[z]; return s + totalByZone[z] - r.ms - r.pvA - r.pvB - (r.pvPending || 0);
     }, 0);
-    const globalTargetMet = globalTargetTables <= 0 || pvDoneGlobal >= globalTargetTables;
-    if (allVreMet && globalTargetMet) break;
+    if (zones.every(z => zoneSatisfied(z)) && (globalTargetTables <= 0 || pvDoneAfter >= globalTargetTables)) break;
   }
 
   return { snapshots, zoneCompletionDay, zoneSatisfiedDay };

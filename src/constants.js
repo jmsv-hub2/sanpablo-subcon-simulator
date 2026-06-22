@@ -8,7 +8,7 @@ export const PHASE_BORDER = {
 };
 export const PHASE_LABEL = {
   0: 'Not started', 1: 'Screwpiles pending', 2: 'Screwpiles approved',
-  3: 'MS pending', 4: 'MS approved', 5: 'PV installed (pending insp.)', 6: 'PV approved',
+  3: 'MS pending inspection', 4: 'MS approved', 5: 'PV pending inspection', 6: 'PV approved',
 };
 
 export const RW = 16.0;
