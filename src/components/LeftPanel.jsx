@@ -316,11 +316,10 @@ export default function LeftPanel({
       <h1>San Pablo Solar</h1>
       <div className="small">MSPV plan simulator</div>
       <div className="sheet-status">
-        <span className={`ss-dot ss-${sheetStatus}`} />
-        <span className="ss-label">
-          {sheetStatus === 'loading' && 'Loading from tracker…'}
-          {sheetStatus === 'ok'      && `Live · ${sheetDate?.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
-          {sheetStatus === 'error'   && 'Offline — local data'}
+        <span className={`ss-pill ss-pill-${sheetStatus}`}>
+          {sheetStatus === 'loading' && '⏳ Loading…'}
+          {sheetStatus === 'ok'      && <>✓ Synced<span className="ss-pill-date"> · Last update: {sheetDate?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span></>}
+          {sheetStatus === 'error'   && '⚠ Offline'}
         </span>
         {sheetStatus !== 'loading' && (
           <button className="ss-refresh" onClick={onRefreshSheet} title="Refresh from tracker">↻</button>

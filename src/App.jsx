@@ -262,7 +262,8 @@ export default function App() {
               <div className="datelabel">{fmtDate(TODAY, dayIdx)}</div>
             </div>
             <input id="slider" type="range" min={0} max={sim ? sim.snapshots.length - 1 : 0} value={dayIdx}
-              onChange={e => setDayIdx(+e.target.value)} disabled={!sim || sim.snapshots.length <= 1} style={{ flex: 1 }} />
+              onChange={e => setDayIdx(+e.target.value)} disabled={!sim || sim.snapshots.length <= 1} style={{ flex: 1 }}
+              onWheel={e => { e.preventDefault(); setDayIdx(i => Math.max(0, Math.min((sim?.snapshots.length ?? 1) - 1, i + (e.deltaY > 0 ? 1 : -1)))) }} />
             <div style={{ display: 'flex', gap: 4 }}>
               <button className="daystep" onClick={() => setDayIdx(i => Math.max(0, i - 1))}>◀</button>
               <button className="daystep" onClick={() => setDayIdx(i => Math.min((sim?.snapshots.length ?? 1) - 1, i + 1))}>▶</button>

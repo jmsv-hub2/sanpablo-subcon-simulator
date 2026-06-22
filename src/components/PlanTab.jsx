@@ -111,16 +111,24 @@ function DayRow({ d, zones, defaultOpen }) {
   const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(d.dateStr).getDay()]
   const isSunday = dow === 'Sun'
 
+  const activeZones = zones.filter(z => (d.msToday[z]?.length ?? 0) + (d.pvToday[z]?.length ?? 0) > 0)
+
   return (
     <div className={`plan-row${open ? ' plan-row-open' : ''}${isSunday ? ' plan-row-sun' : ''}`}>
       {/* Summary bar */}
       <div className="plan-row-head" onClick={() => hasWork && setOpen(o => !o)}>
         <span className="plan-day">Day {d.day}</span>
         <span className="plan-date">{dow} {fmtDisplayDate(d.dateStr)}</span>
+        <div className="plan-zones-col">
+          {activeZones.map(z => <span key={z} className="plan-zone-chip">{z}</span>)}
+        </div>
         <div className="plan-workers">
           <span className="plan-workers-total">{d.workers}<span className="plan-workers-lbl"> workers</span></span>
-          {d.msWorkers > 0 && <span className="plan-badge plan-badge-ms">{d.msWorkers} MS</span>}
-          {d.pvWorkers > 0 && <span className="plan-badge plan-badge-pv">{d.pvWorkers} PV</span>}
+          <span className="plan-workers-split">
+            {d.msWorkers > 0 && <><span className="plan-split-ms">{d.msWorkers} on MS</span></>}
+            {d.msWorkers > 0 && d.pvWorkers > 0 && <span className="plan-split-sep"> · </span>}
+            {d.pvWorkers > 0 && <><span className="plan-split-pv">{d.pvWorkers} on PV</span></>}
+          </span>
         </div>
         <div className="plan-counts">
           {d.msCount > 0 && <span className="plan-badge plan-badge-ms">{d.msCount} MS</span>}
@@ -226,17 +234,16 @@ export default function PlanTab({ planData, zones, today }) {
         </div>
       </div>
 
-      {/* Column headers */}
-      <div className="plan-cols">
-        <span style={{ width: 64 }}>Day</span>
-        <span style={{ flex: 1 }}>Date</span>
-        <span style={{ width: 160 }}>Workers</span>
-        <span style={{ width: 100 }}>Tables done</span>
-        <span style={{ width: 20 }} />
-      </div>
-
-      {/* Rows */}
+      {/* Rows + sticky column headers inside same scroll container for perfect alignment */}
       <div className="plan-list">
+        <div className="plan-cols">
+          <span style={{ width: 64, flexShrink: 0 }}>Day</span>
+          <span style={{ flex: 1 }}>Date</span>
+          <span style={{ width: 130, flexShrink: 0 }}>MVPS</span>
+          <span style={{ width: 190, flexShrink: 0, textAlign: 'center' }}>Workers</span>
+          <span style={{ width: 120, flexShrink: 0, textAlign: 'center' }}>Tables done</span>
+          <span style={{ width: 20, flexShrink: 0 }} />
+        </div>
         {filtered.length === 0 && (
           <div className="plan-idle" style={{ padding: 24, textAlign: 'center' }}>No results</div>
         )}
