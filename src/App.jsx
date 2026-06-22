@@ -1,5 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { ZONES, TABLES, TABLES_BY_ZONE, TOTAL_TABLES, TOTAL_MWP, MWP_PER_TABLE, TOTAL_BY_ZONE } from './data.js'
+import { ZONES, TABLES, TOTAL_TABLES, TOTAL_MWP, MWP_PER_TABLE, TOTAL_BY_ZONE } from './data.js'
+
+// Read-only access to the sanpablo-tracker Google Sheet via Apps Script.
+// This app NEVER writes to the sheet — only GET ?action=read is used.
+const TRACKER_API = 'https://script.google.com/macros/s/AKfycbwJQNUg5oRFeUABFEf_QfPGFa9XJBekbZs2gtreickGGCXxP-74UC_tvtPiX8x60DqGUg/exec'
 import { simulate, deriveDay } from '../engine.js'
 import LeftPanel from './components/LeftPanel.jsx'
 import MapCanvas from './components/MapCanvas.jsx'
@@ -45,6 +49,26 @@ export default function App() {
   const [layerLabels,      setLayerLabels]      = useState(true)
   const [layerTableLabels, setLayerTableLabels] = useState(false)
 
+  // ── Live data from tracker Sheet (read-only) ──
+  const [tables,      setTables]      = useState(TABLES)
+  const [sheetStatus, setSheetStatus] = useState('loading')
+  const [sheetDate,   setSheetDate]   = useState(null)
+
+  const loadSheetData = useCallback(() => {
+    setSheetStatus('loading')
+    fetch(`${TRACKER_API}?action=read`) // GET only — never writes to the sheet
+      .then(r => r.json())
+      .then(data => {
+        const phases = data.phases || {}
+        setTables(TABLES.map(t => ({ ...t, ph: phases[t.id] ?? t.ph })))
+        setSheetDate(new Date())
+        setSheetStatus('ok')
+      })
+      .catch(() => setSheetStatus('error'))
+  }, [])
+
+  useEffect(() => { loadSheetData() }, [loadSheetData])
+
   // ── Simulation result ──
   const [sim,    setSim]    = useState(null)
   const [dayIdx, setDayIdx] = useState(0)
@@ -81,29 +105,38 @@ export default function App() {
     return result
   }, [generalWorkers, sundayWorkersPct, globalDeadline, generalCalOverrides, workerBatches])
 
-  // ── Initial render: show real data state ──
+  // ── tablesByZone: recomputed whenever Sheet data refreshes ──
+  const tablesByZone = useMemo(
+    () => Object.fromEntries(ZONES.map(z => [z, tables.filter(t => t.zone === z)])),
+    [tables]
+  )
+
+  // ── Show real data state on map — refreshes automatically when Sheet data arrives ──
   useEffect(() => {
-    const result = simulate({
-      tables: TABLES, zones: ZONES,
-      zonePriority: [...ZONES],
-      zoneThresholds: Object.fromEntries(ZONES.map(z => [z, 100])),
-      activeSubs: [], workforceOverrides: {}, startDate: TODAY, maxDays: 0,
+    setSim(prev => {
+      // Don't discard a full simulation the user already ran
+      if (prev && prev.snapshots.length > 1) return prev
+      return simulate({
+        tables, zones: ZONES,
+        zonePriority: [...ZONES],
+        zoneThresholds: Object.fromEntries(ZONES.map(z => [z, 100])),
+        activeSubs: [], workforceOverrides: {}, startDate: TODAY, maxDays: 0,
+      })
     })
-    setSim(result)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tables]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runSim = useCallback(() => {
     const globalTargetTables = Math.ceil(TOTAL_TABLES * Math.max(1, Math.min(100, targetPct)) / 100)
-    const result = simulate({ tables: TABLES, zones: ZONES, zonePriority, zoneThresholds, activeSubs, workforceOverrides, startDate: TODAY, maxDays: 800, globalTargetTables })
+    const result = simulate({ tables, zones: ZONES, zonePriority, zoneThresholds, activeSubs, workforceOverrides, startDate: TODAY, maxDays: 800, globalTargetTables })
     setSim(result)
     setDayIdx(0)
-  }, [zonePriority, zoneThresholds, activeSubs, workforceOverrides, targetPct])
+  }, [tables, zonePriority, zoneThresholds, activeSubs, workforceOverrides, targetPct])
 
   // ── Derived visual state ──
   const derived = useMemo(() => {
     if (!sim) return null
-    return deriveDay(sim.snapshots[dayIdx], TABLES_BY_ZONE, ZONES)
-  }, [sim, dayIdx])
+    return deriveDay(sim.snapshots[dayIdx], tablesByZone, ZONES)
+  }, [sim, dayIdx, tablesByZone])
 
   const snap = sim?.snapshots[dayIdx] ?? null
 
@@ -119,7 +152,7 @@ export default function App() {
     let pvDoneGlobal = 0, pvAGlobal = 0
     ZONES.forEach(z => {
       const r = snap.remaining[z]
-      const total_z = TABLES_BY_ZONE[z].length
+      const total_z = tablesByZone[z].length
       pvDoneGlobal += total_z - r.ms - r.pvA - r.pvB - (r.pvPending || 0)
       pvAGlobal    += r.pvA
     })
@@ -127,14 +160,14 @@ export default function App() {
     const totalPv = pvGap
     const totalMs = Math.max(0, pvGap - pvAGlobal)
 
-    const pvDoneCount  = TABLES.filter(t => derived.phase[t.id] >= 5).length
+    const pvDoneCount  = tables.filter(t => derived.phase[t.id] >= 5).length
     const completedMwp = pvDoneCount * MWP_PER_TABLE
 
     // Scan snapshots once for both the intermediate target date and 100% completion date
     let targetDay = null, fullTargetDay = null
     for (const s of sim.snapshots) {
       let done = 0
-      ZONES.forEach(z => { done += TABLES_BY_ZONE[z].length - s.remaining[z].ms - s.remaining[z].pvA - s.remaining[z].pvB - (s.remaining[z].pvPending || 0) })
+      ZONES.forEach(z => { done += tablesByZone[z].length - s.remaining[z].ms - s.remaining[z].pvA - s.remaining[z].pvB - (s.remaining[z].pvPending || 0) })
       if (targetDay === null && done >= targetTables) targetDay = s.day
       if (fullTargetDay === null && done >= TOTAL_TABLES) { fullTargetDay = s.day; break }
     }
@@ -143,7 +176,7 @@ export default function App() {
     const targetStatus = targetDate ? (targetDate <= new Date(globalDeadline) ? 'ok' : 'bad') : 'unknown'
 
     return { totalMs, totalPv, pvDoneCount, completedMwp, targetDay, fullTargetDay, targetStatus, tPct, targetTables }
-  }, [sim, simReady, derived, snap, globalDeadline, targetPct, zoneThresholds])
+  }, [sim, simReady, derived, snap, globalDeadline, targetPct, zoneThresholds, tablesByZone, tables])
 
   // ── Daily throughput ──
   const dailyThroughput = useMemo(() => {
@@ -168,7 +201,7 @@ export default function App() {
   // ── MSPV plan (per-day table assignments) ──
   const planData = useMemo(() => {
     if (!simReady) return null
-    const allDerived = sim.snapshots.map(s => deriveDay(s, TABLES_BY_ZONE, ZONES))
+    const allDerived = sim.snapshots.map(s => deriveDay(s, tablesByZone, ZONES))
     const startDate = new Date(TODAY)
     return sim.snapshots.slice(1).map((snap, i) => {
       const prev = allDerived[i]
@@ -176,7 +209,7 @@ export default function App() {
       const msToday = Object.fromEntries(ZONES.map(z => [z, []]))
       const pvToday = Object.fromEntries(ZONES.map(z => [z, []]))
       ZONES.forEach(z => {
-        TABLES_BY_ZONE[z].forEach(t => {
+        tablesByZone[z].forEach(t => {
           const pp = prev.phase[t.id], cp = curr.phase[t.id]
           if (pp < 3 && cp >= 3) msToday[z].push(t.id)
           if (pp < 5 && cp >= 5) pvToday[z].push(t.id)
@@ -191,7 +224,7 @@ export default function App() {
       const pvWorkers = generalRatePv > 0 ? Math.round(pvCount / generalRatePv) : 0
       return { day: snap.day, dateStr, workers, msCount, pvCount, msWorkers, pvWorkers, msToday, pvToday }
     }).filter(d => d.msCount > 0 || d.pvCount > 0)
-  }, [sim, simReady, workforceOverrides, generalWorkers, generalRateMs, generalRatePv])
+  }, [sim, simReady, workforceOverrides, generalWorkers, generalRateMs, generalRatePv, tablesByZone])
 
   return (
     <>
@@ -210,6 +243,7 @@ export default function App() {
         onRun={runSim} simReady={simReady}
         simDays={sim ? sim.snapshots.length - 1 : 0}
         today={TODAY}
+        sheetStatus={sheetStatus} sheetDate={sheetDate} onRefreshSheet={loadSheetData}
       />
 
       <div className="main-col">
@@ -218,7 +252,7 @@ export default function App() {
           <div className="tab-switcher">
             <button className={`tab-btn${activeTab === 'map' ? ' active' : ''}`} onClick={() => setActiveTab('map')}>Map</button>
             <button className={`tab-btn${activeTab === 'plan' ? ' active' : ''}`} onClick={() => setActiveTab('plan')}>
-              MSPV Plan {simReady && planData && <span className="tab-badge">{planData.length}d</span>}
+              MSPV Plan {simReady && stats?.targetDay != null && <span className="tab-badge">{stats.targetDay}d</span>}
             </button>
           </div>
 

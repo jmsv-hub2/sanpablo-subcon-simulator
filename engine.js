@@ -131,9 +131,13 @@ export function simulate({
       if (workers <= 0) return;
       let target;
       if (inGlobalChase) {
-        // Chase mode: continue from the LAST zone in priority with remaining work
-        // (avoids jumping back to zone 1 when the last active zone still has tables)
-        const available = zonePriority.filter(z => hasWorkForSub(z, s.pvOnly, true));
+        // Chase mode: continue from the LAST zone in priority with remaining work.
+        // Satisfied zones are only eligible if they have simulation-created pvB to finish;
+        // never target a satisfied zone just because it has pre-existing pvA backlog.
+        const available = zonePriority.filter(z => {
+          if (zoneSatisfied(z)) return remaining[z].pvB > 0;
+          return hasWorkForSub(z, s.pvOnly, true);
+        });
         target = available[available.length - 1];
       } else {
         target = zonePriority.find(z => !zoneSatisfied(z) && hasWorkForSub(z, s.pvOnly, false));
@@ -214,11 +218,11 @@ export function simulate({
       const effectiveChase = inGlobalChase ||
         (zones.every(z => zoneSatisfied(z)) && globalTargetTables > 0 && pvDonePostPV < globalTargetTables);
 
-      // Step 3: MS on primary zone — capped to VRE threshold unless in chase.
+      // Step 3: MS on primary zone — only when zone is NOT yet VRE-satisfied.
       let msWorkersUsed = 0;
-      if (!zoneSatisfied(st.zone) || effectiveChase) {
+      if (!zoneSatisfied(st.zone)) {
         const msWorkerDays = budget - pvWorkerDays;
-        const needed = effectiveChase ? r.ms : msNeededForZone(st.zone);
+        const needed = msNeededForZone(st.zone);
         if (msWorkerDays > 0.01 && r.ms > 0 && needed > 0) {
           const consumedMs = Math.min(r.ms, Math.min(needed, msWorkerDays * st.prodMs));
           if (consumedMs > 0) {
@@ -230,7 +234,10 @@ export function simulate({
         }
       }
 
-      // Step 4: Sweep remaining idle capacity.
+      // Step 4: Sweep remaining idle capacity across all zones.
+      // PV (pvA/pvB backlog) is always fair game — a satisfied zone may still have
+      // pre-existing MS-approved tables that need PV work.
+      // MS is restricted to unsatisfied zones only (never start new MS where VRE is met).
       let idle = budget - pvWorkerDays - msWorkersUsed;
       const sweepOrder = effectiveChase
         ? [...zonePriority].reverse().filter(z => z !== st.zone)
@@ -239,8 +246,10 @@ export function simulate({
         if (idle <= 0.01) break;
         const rz = remaining[z];
 
-        // PV in this zone
-        const pvAvailZ = rz.pvA + rz.pvB;
+        // PV in this zone.
+        // In VRE-satisfied zones only consume pvB (simulation-created, already committed).
+        // Never consume pvA in a satisfied zone — that is pre-existing backlog the sim doesn't plan.
+        const pvAvailZ = zoneSatisfied(z) ? rz.pvB : (rz.pvA + rz.pvB);
         if (pvAvailZ > 0 && st.prodPv > 0) {
           const pvWorkersZ = Math.min(idle, pvAvailZ / st.prodPv);
           if (pvWorkersZ > 0.01) {
@@ -254,9 +263,9 @@ export function simulate({
           }
         }
 
-        // MS in this zone (capped to VRE-needed, or uncapped in chase)
-        if (idle > 0.01 && (!zoneSatisfied(z) || effectiveChase) && rz.ms > 0 && st.prodMs > 0) {
-          const neededZ = effectiveChase ? rz.ms : msNeededForZone(z);
+        // MS only in unsatisfied zones — never in a VRE-completed zone.
+        if (idle > 0.01 && !zoneSatisfied(z) && rz.ms > 0 && st.prodMs > 0) {
+          const neededZ = msNeededForZone(z);
           if (neededZ > 0) {
             const consumedMsZ = Math.min(rz.ms, Math.min(neededZ, idle * st.prodMs));
             if (consumedMsZ > 0.01) {
@@ -266,6 +275,19 @@ export function simulate({
               if (!assignment[z].includes(st.name)) assignment[z].push(st.name);
             }
           }
+        }
+      }
+
+      // Step 5: Absorb any remaining idle into extra MS on the primary zone.
+      // This fills wasted capacity in the final days when the sweep finds nothing to do.
+      // The VRE-based cap in step 3 is intentionally kept for sweep efficiency; here we
+      // use whatever idle capacity the sweep didn't absorb.
+      if (idle > 0.01 && !zoneSatisfied(st.zone) && r.ms > 0 && st.prodMs > 0) {
+        const extraMs = Math.min(r.ms, idle * st.prodMs);
+        if (extraMs > 0) {
+          r.ms        -= extraMs;
+          r.pvPending += extraMs;
+          msQueue[st.zone].push({ sub: st.name, count: extraMs });
         }
       }
     });

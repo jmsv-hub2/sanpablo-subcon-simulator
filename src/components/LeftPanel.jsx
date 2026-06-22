@@ -302,6 +302,7 @@ export default function LeftPanel({
   targetPct, setTargetPct,
   generalCalOverrides, setGeneralCalOverrides,
   onRun, simReady, simDays, today,
+  sheetStatus, sheetDate, onRefreshSheet,
 }) {
   const tPct         = Math.max(1, Math.min(100, targetPct))
   const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
@@ -314,6 +315,17 @@ export default function LeftPanel({
     <div className="col">
       <h1>San Pablo Solar</h1>
       <div className="small">MSPV plan simulator</div>
+      <div className="sheet-status">
+        <span className={`ss-dot ss-${sheetStatus}`} />
+        <span className="ss-label">
+          {sheetStatus === 'loading' && 'Loading from tracker…'}
+          {sheetStatus === 'ok'      && `Live · ${sheetDate?.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
+          {sheetStatus === 'error'   && 'Offline — local data'}
+        </span>
+        {sheetStatus !== 'loading' && (
+          <button className="ss-refresh" onClick={onRefreshSheet} title="Refresh from tracker">↻</button>
+        )}
+      </div>
 
       {/* ── Manpower & productivity ─────────────────────── */}
       <Section title="Manpower & productivity" defaultOpen={true}>
@@ -360,7 +372,7 @@ export default function LeftPanel({
         {/* Target / completion card */}
         <div className="tc-card">
           <div className="tc-top">
-            <div>
+            <div className="tc-left">
               <div className="tc-eyebrow">Target</div>
               <div className="tc-pct-row">
                 <NumInput value={targetPct} onChange={v => setTargetPct(Math.max(1, Math.min(100, v)))}
@@ -369,10 +381,14 @@ export default function LeftPanel({
               </div>
               <div className="tc-sub">{targetTables.toLocaleString()} tables · {targetMwp} MWp</div>
             </div>
-            <div className="tc-date-block">
-              <div className="tc-eyebrow" style={{ textAlign: 'right' }}>Completion</div>
+            <div className="tc-sep" />
+            <div className="tc-right">
+              <div className="tc-eyebrow">Completion</div>
               {stats
-                ? <div className="tc-date" style={{ color: statusColor }}>{fmt(stats.targetDay)}</div>
+                ? <>
+                    <div className="tc-date" style={{ color: statusColor }}>{fmt(stats.targetDay)}</div>
+                    <div className="tc-days">{stats.targetDay} days</div>
+                  </>
                 : <div className="tc-date-empty">run sim ▶</div>
               }
             </div>
