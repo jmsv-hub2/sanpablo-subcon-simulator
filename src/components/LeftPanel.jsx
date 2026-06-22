@@ -313,7 +313,7 @@ export default function LeftPanel({
 
   return (
     <div className="col">
-      <h1>San Pablo Solar</h1>
+      <h1>Solar Valley Solar Project</h1>
       <div className="small">MSPV plan simulator</div>
       <div className="sheet-status">
         <span className={`ss-pill ss-pill-${sheetStatus}`}>
