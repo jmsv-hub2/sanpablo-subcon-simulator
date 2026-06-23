@@ -249,7 +249,7 @@ export function simulate({
         // PV in this zone.
         // In VRE-satisfied zones only consume pvB (simulation-created, already committed).
         // Never consume pvA in a satisfied zone — that is pre-existing backlog the sim doesn't plan.
-        const pvAvailZ = rz.pvA + rz.pvB;
+        const pvAvailZ = zoneSatisfied(z) ? rz.pvB : (rz.pvA + rz.pvB);
         if (pvAvailZ > 0 && st.prodPv > 0) {
           const pvWorkersZ = Math.min(idle, pvAvailZ / st.prodPv);
           if (pvWorkersZ > 0.01) {
