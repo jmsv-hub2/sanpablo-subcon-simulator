@@ -90,11 +90,11 @@ export default function App() {
       for (let d = new Date(TODAY), i = 0; d <= end && i < 800; d.setDate(d.getDate() + 1), i++) {
         const dateStr = d.toISOString().slice(0, 10)
         const isSunday = d.getDay() === 0
-        let workers = isSunday ? Math.round(generalWorkers * sundayWorkersPct / 100) : generalWorkers
         const batchTotal = workerBatches
           .filter(b => b.fromDate <= dateStr)
           .reduce((s, b) => s + b.count, 0)
-        workers += batchTotal
+        const baseTotal = generalWorkers + batchTotal
+        let workers = isSunday ? Math.round(baseTotal * sundayWorkersPct / 100) : baseTotal
         if (workers !== generalWorkers) result[`Crew|${dateStr}`] = workers
       }
     }
@@ -193,6 +193,13 @@ export default function App() {
     return { ms: Math.max(0, ms), pv: Math.max(0, pv), total: Math.max(0, ms + pv) }
   }, [sim, dayIdx])
 
+  const dailyWorkers = useMemo(() => {
+    const d = new Date(TODAY)
+    d.setDate(d.getDate() + dayIdx)
+    const dateStr = d.toISOString().slice(0, 10)
+    return workforceOverrides[`Crew|${dateStr}`] ?? generalWorkers
+  }, [dayIdx, workforceOverrides, generalWorkers])
+
   const fmt = (offset) => offset !== null && offset !== undefined ? fmtDate(TODAY, offset) : '—'
 
   // ── Tab state ──
@@ -285,7 +292,7 @@ export default function App() {
             <BottomStats
               sim={sim} stats={stats} snap={snap} fmt={fmt}
               zonePriority={zonePriority} zoneThresholds={zoneThresholds}
-              dayIdx={dayIdx} dailyThroughput={dailyThroughput}
+              dayIdx={dayIdx} dailyThroughput={dailyThroughput} dailyWorkers={dailyWorkers}
             />
           </>
         ) : (

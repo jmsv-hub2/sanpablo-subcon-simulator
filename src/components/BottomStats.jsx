@@ -75,7 +75,7 @@ function ZoneMatrix({ snap, sim, zonePriority, zoneThresholds, dayIdx, fmt }) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function BottomStats({ sim, stats, snap, fmt, zonePriority, zoneThresholds, dayIdx, dailyThroughput }) {
+export default function BottomStats({ sim, stats, snap, fmt, zonePriority, zoneThresholds, dayIdx, dailyThroughput, dailyWorkers }) {
   return (
     <div className="bottom-stats">
       {/* ── Global stats strip ──────────────────────────────────────────────── */}
@@ -87,6 +87,8 @@ export default function BottomStats({ sim, stats, snap, fmt, zonePriority, zoneT
             <div className="gstat"><div className="gstat-val">{Math.round(stats.pvDoneCount).toLocaleString()} <span className="small">/ {TOTAL_TABLES.toLocaleString()}</span></div><div className="gstat-lbl">PV tables</div></div>
             <div className="gstat-div" />
             <div className="gstat"><div className="gstat-val">{stats.completedMwp.toFixed(1)} <span className="small">/ {TOTAL_MWP} MWp</span></div><div className="gstat-lbl">Capacity</div></div>
+            <div className="gstat-div" />
+            <div className="gstat"><div className="gstat-val">{dailyWorkers ?? '—'}</div><div className="gstat-lbl">Workers</div></div>
             <div className="gstat-div" />
             <div className="gstat"><div className="gstat-val">{dailyThroughput?.total.toFixed(0) ?? '—'}</div><div className="gstat-lbl">Tables/day</div></div>
             <div className="gstat-div" />

@@ -136,8 +136,9 @@ function WorkforceCalendar({ globalDeadline, generalCalOverrides, setGeneralCalO
 
   const computedWorkers = date => {
     const isSunday = new Date(date).getDay() === 0
-    const base = isSunday ? Math.round(generalWorkers * sundayWorkersPct / 100) : generalWorkers
-    return base + workerBatches.filter(b => b.fromDate <= date).reduce((s, b) => s + b.count, 0)
+    const batchTotal = workerBatches.filter(b => b.fromDate <= date).reduce((s, b) => s + b.count, 0)
+    const baseTotal = generalWorkers + batchTotal
+    return isSunday ? Math.round(baseTotal * sundayWorkersPct / 100) : baseTotal
   }
 
   const handleAdd = () => {
