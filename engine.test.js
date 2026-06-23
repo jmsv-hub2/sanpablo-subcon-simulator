@@ -308,3 +308,28 @@ test('deriveDay: sub ownership assigned to MS queue entries via ownerFromQueue',
   // T2 not yet MS'd → null
   assert.equal(owner['T2'], null);
 });
+
+// ─── regression: reordered zonePriority must not cause 800-day infinite run ──
+
+test('simulate: reversed zonePriority converges when zones have pvA at VRE satisfaction', () => {
+  // Zone A: 10 tables, 8 already MS-done (pvA), threshold 80% → satisfied immediately but pvA remains
+  // Zone B: 5 tables, all MS-done (pvA), threshold 100%
+  // Priority order reversed: B first, A second
+  // Bug: once A is VRE-satisfied with pvA remaining, chase mode never drains it → 800 days
+  const tables = [
+    ...Array.from({ length: 2 }, (_, i) => tbl(`A${i}`, 'A', 1)),   // ph=1, need MS
+    ...Array.from({ length: 8 }, (_, i) => tbl(`Ap${i}`, 'A', 4)), // ph=4 = pvA
+    ...Array.from({ length: 5 }, (_, i) => tbl(`B${i}`, 'B', 4)),  // ph=4 = pvA
+  ];
+  const p = params(tables, {
+    zones: ['A', 'B'],
+    zonePriority: ['B', 'A'],  // reversed
+    zoneThresholds: { A: 80, B: 100 },
+    activeSubs: [{ name: 'Crew', workers: 50, prodMs: 1, prodPv: 1, pvOnly: false }],
+    maxDays: 50,
+    globalTargetTables: 13, // 100% of all 13 tables
+  });
+  const { snapshots } = simulate(p);
+  // Must converge well before 800 days
+  assert.ok(snapshots.length <= 15, `Expected ≤15 days, got ${snapshots.length}`);
+});

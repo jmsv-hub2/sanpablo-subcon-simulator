@@ -135,7 +135,7 @@ export function simulate({
         // Satisfied zones are only eligible if they have simulation-created pvB to finish;
         // never target a satisfied zone just because it has pre-existing pvA backlog.
         const available = zonePriority.filter(z => {
-          if (zoneSatisfied(z)) return remaining[z].pvB > 0;
+          if (zoneSatisfied(z)) return remaining[z].pvB > 0 || remaining[z].pvA > 0;
           return hasWorkForSub(z, s.pvOnly, true);
         });
         target = available[available.length - 1];
@@ -249,7 +249,7 @@ export function simulate({
         // PV in this zone.
         // In VRE-satisfied zones only consume pvB (simulation-created, already committed).
         // Never consume pvA in a satisfied zone — that is pre-existing backlog the sim doesn't plan.
-        const pvAvailZ = zoneSatisfied(z) ? rz.pvB : (rz.pvA + rz.pvB);
+        const pvAvailZ = rz.pvA + rz.pvB;
         if (pvAvailZ > 0 && st.prodPv > 0) {
           const pvWorkersZ = Math.min(idle, pvAvailZ / st.prodPv);
           if (pvWorkersZ > 0.01) {
