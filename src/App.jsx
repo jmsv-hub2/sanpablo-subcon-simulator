@@ -59,7 +59,8 @@ export default function App() {
     fetch(`${TRACKER_API}?action=read`) // GET only — never writes to the sheet
       .then(r => r.json())
       .then(data => {
-        const phases = data.phases || {}
+        const rows = Array.isArray(data.data) ? data.data : Object.values(data.data || {})
+        const phases = Object.fromEntries(rows.filter(r => r.id != null).map(r => [r.id, r.phase]))
         setTables(TABLES.map(t => ({ ...t, ph: phases[t.id] ?? t.ph })))
         setSheetDate(new Date())
         setSheetStatus('ok')
