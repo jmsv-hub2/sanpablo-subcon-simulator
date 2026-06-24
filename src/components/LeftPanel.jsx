@@ -358,11 +358,11 @@ export default function LeftPanel({
           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
             <NumInput value={nonProdPct} onChange={v => setNonProdPct(Math.max(0, Math.min(100, v)))}
               min={0} max={100} className="stat-val-input" style={{ width: 90, paddingRight: 22 }} />
-            <span style={{ position: 'absolute', right: 8, pointerEvents: 'none', color: 'var(--muted)', fontSize: 12 }}>%</span>
+            <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--muted)', fontSize: 12 }}>%</span>
           </div>
         </div>
         <div style={{ height: 1, background: 'var(--line)', margin: '6px 0' }} />
-        <div className="stat-row" style={{ marginBottom: 4 }}>
+        <div className="stat-row" style={{ marginBottom: 4, justifyContent: 'flex-end' }}>
           <span className="stat-hint" style={{ marginBottom: 0 }}>= {effectiveWorkers} productive workers</span>
         </div>
 
@@ -386,10 +386,10 @@ export default function LeftPanel({
         <div className="stat-row" style={{ marginTop: 2, alignItems: 'flex-start' }}>
           <span className="stat-lbl" style={{ paddingTop: 8 }}>Sunday crew</span>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
               <NumInput value={sundayWorkersPct} onChange={v => setSundayWorkersPct(Math.max(0, Math.min(100, v)))}
-                min={0} max={100} className="stat-val-input stat-val-sm" />
-              <span className="stat-unit">%</span>
+                min={0} max={100} className="stat-val-input" style={{ width: 90, paddingRight: 22 }} />
+              <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--muted)', fontSize: 12 }}>%</span>
             </div>
             <span className="stat-hint" style={{ marginBottom: 0 }}>
               {sundayWorkersPct === 0
