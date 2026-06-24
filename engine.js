@@ -350,7 +350,7 @@ export function deriveDay(snapshot, tablesByZone, zones) {
 
     groupA.forEach((t, i) => {
       if (i < doneA) { phase[t.id] = 5; owner[t.id] = ownerFromQueue(snapshot.pvQueueA[z], i) || owner[t.id]; }
-      else           { phase[t.id] = 4; }
+      else           { phase[t.id] = t.ph; } // preserve real ph (3=MS pending, 4=MS approved)
     });
     groupB.forEach((t, i) => {
       if (i < doneB) { phase[t.id] = 5; owner[t.id] = ownerFromQueue(snapshot.pvQueueB[z], i) || owner[t.id]; }
