@@ -60,7 +60,7 @@ export default function App() {
 
   const loadSheetData = useCallback(() => {
     setSheetStatus('loading')
-    fetch(`${TRACKER_API}?action=read`) // GET only — never writes to the sheet
+    fetch(`${TRACKER_API}?action=read&_=${Date.now()}`) // GET only — never writes to the sheet
       .then(r => r.json())
       .then(data => {
         const rows = Array.isArray(data.data) ? data.data : Object.values(data.data || {})
