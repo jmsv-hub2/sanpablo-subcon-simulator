@@ -122,7 +122,8 @@ function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresh
 
 // ── Workforce calendar ───────────────────────────────────────────────────────
 function WorkforceCalendar({ globalDeadline, generalCalOverrides, setGeneralCalOverrides,
-  workerBatches, setWorkerBatches, generalWorkers, sundayWorkersPct, today }) {
+  workerBatches, setWorkerBatches, generalWorkers, sundayWorkersPct, today,
+  nonProdPct, calApplyNonProd, setCalApplyNonProd }) {
 
   const [addFrom,  setAddFrom]  = useState(today)
   const [addCount, setAddCount] = useState('')
@@ -138,7 +139,9 @@ function WorkforceCalendar({ globalDeadline, generalCalOverrides, setGeneralCalO
     const isSunday = new Date(date).getDay() === 0
     const batchTotal = workerBatches.filter(b => b.fromDate <= date).reduce((s, b) => s + b.count, 0)
     const baseTotal = generalWorkers + batchTotal
-    return isSunday ? Math.round(baseTotal * sundayWorkersPct / 100) : baseTotal
+    let w = isSunday ? Math.round(baseTotal * sundayWorkersPct / 100) : baseTotal
+    if (calApplyNonProd) w = Math.round(w * (1 - Math.max(0, Math.min(100, nonProdPct)) / 100))
+    return w
   }
 
   const handleAdd = () => {
@@ -150,6 +153,13 @@ function WorkforceCalendar({ globalDeadline, generalCalOverrides, setGeneralCalO
 
   return (
     <>
+      {/* ── Non-productive toggle ───────────────── */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, cursor: 'pointer', width: 'fit-content' }}>
+        <input type="checkbox" checked={calApplyNonProd} onChange={e => setCalApplyNonProd(e.target.checked)}
+          style={{ width: 13, height: 13, accentColor: 'var(--ok)', cursor: 'pointer' }} />
+        <span className="stat-lbl" style={{ fontSize: 11 }}>Apply −{nonProdPct}% non-productive</span>
+      </label>
+
       {/* ── Crew list ───────────────────────────── */}
       <div className="crew-list">
         <div className="crew-row crew-base">
@@ -228,7 +238,7 @@ function WorkforceCalendar({ globalDeadline, generalCalOverrides, setGeneralCalO
 }
 
 // ── Manpower quick calculator ─────────────────────────────────────────────────
-function ManpowerCalc({ stats, today, generalRateMs, generalRatePv, sundayWorkersPct }) {
+function ManpowerCalc({ stats, today, generalRateMs, generalRatePv, sundayWorkersPct, nonProdPct }) {
   const [targetDate, setTargetDate] = useState(today)
   const [localRateMs, setLocalRateMs] = useState(generalRateMs)
   const [localRatePv, setLocalRatePv] = useState(generalRatePv)
@@ -276,10 +286,15 @@ function ManpowerCalc({ stats, today, generalRateMs, generalRatePv, sundayWorker
           <div className="qc-row"><span>Working days</span><span>{result.workDays}</span></div>
           <div className="qc-divider" />
           <div className="qc-main-row">
-            <span>Workers needed</span>
+            <span>Productive workers needed</span>
             <span className="qc-workers">{Math.ceil(result.workers)}</span>
           </div>
           <div className="qc-note">≈ {result.workers.toFixed(1)} · rounded up</div>
+          {nonProdPct > 0 && (
+            <div className="qc-note" style={{ color: 'var(--muted)' }}>
+              Total incl. {nonProdPct}% non-prod: {Math.ceil(result.workers / (1 - nonProdPct / 100))}
+            </div>
+          )}
         </div>
       ) : (
         <div className="stat-hint" style={{ textAlign: 'center', marginTop: 8 }}>
@@ -304,13 +319,16 @@ export default function LeftPanel({
   generalCalOverrides, setGeneralCalOverrides,
   onRun, simReady, simDays, today,
   sheetStatus, sheetDate, onRefreshSheet,
+  nonProdPct, setNonProdPct,
+  calApplyNonProd, setCalApplyNonProd,
+  effectiveWorkers,
 }) {
   const tPct         = Math.max(1, Math.min(100, targetPct))
   const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
   const targetMwp    = (targetTables * TOTAL_MWP / TOTAL_TABLES).toFixed(2)
   const statusColor  = stats?.targetStatus === 'ok' ? 'var(--ok)' : stats?.targetStatus === 'bad' ? 'var(--bad)' : 'var(--accent)'
-  const msCapacity   = Math.round(generalWorkers * generalRateMs)
-  const pvCapacity   = Math.round(generalWorkers * generalRatePv)
+  const msCapacity   = Math.round(effectiveWorkers * generalRateMs)
+  const pvCapacity   = Math.round(effectiveWorkers * generalRatePv)
 
   return (
     <div className="col">
@@ -330,10 +348,22 @@ export default function LeftPanel({
       {/* ── Manpower & productivity ─────────────────────── */}
       <Section title="Manpower & productivity" defaultOpen={true}>
 
-        {/* Workers */}
+        {/* Workers — W2 layout (total + non-productive %) */}
         <div className="stat-row">
           <span className="stat-lbl">Workers</span>
-          <NumInput value={generalWorkers} onChange={setGeneralWorkers} min={0} className="stat-val-input" />
+          <NumInput value={generalWorkers} onChange={setGeneralWorkers} min={0} className="stat-val-input" style={{ width: 90 }} />
+        </div>
+        <div className="stat-row" style={{ marginTop: 2 }}>
+          <span className="stat-lbl" style={{ color: 'var(--muted)', fontSize: 11 }}>Non-productive</span>
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+            <NumInput value={nonProdPct} onChange={v => setNonProdPct(Math.max(0, Math.min(100, v)))}
+              min={0} max={100} className="stat-val-input" style={{ width: 90, paddingRight: 22 }} />
+            <span style={{ position: 'absolute', right: 8, pointerEvents: 'none', color: 'var(--muted)', fontSize: 12 }}>%</span>
+          </div>
+        </div>
+        <div style={{ height: 1, background: 'var(--line)', margin: '6px 0' }} />
+        <div className="stat-row" style={{ marginBottom: 4 }}>
+          <span className="stat-hint" style={{ marginBottom: 0 }}>= {effectiveWorkers} productive workers</span>
         </div>
 
         {/* MS / PV rate boxes */}
@@ -405,6 +435,7 @@ export default function LeftPanel({
           workerBatches={workerBatches} setWorkerBatches={setWorkerBatches}
           generalWorkers={generalWorkers} sundayWorkersPct={sundayWorkersPct}
           today={today}
+          nonProdPct={nonProdPct} calApplyNonProd={calApplyNonProd} setCalApplyNonProd={setCalApplyNonProd}
         />
       </Section>
 
@@ -421,7 +452,7 @@ export default function LeftPanel({
         <div className="card">
           <ManpowerCalc stats={stats} today={today}
             generalRateMs={generalRateMs} generalRatePv={generalRatePv}
-            sundayWorkersPct={sundayWorkersPct} />
+            sundayWorkersPct={sundayWorkersPct} nonProdPct={nonProdPct} />
         </div>
       </Section>
 

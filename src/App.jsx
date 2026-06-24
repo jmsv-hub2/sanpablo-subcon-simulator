@@ -45,6 +45,10 @@ export default function App() {
   // ── Per-day absolute overrides ──
   const [generalCalOverrides, setGeneralCalOverrides] = useState({})
 
+  // ── Non-productive workers ──
+  const [nonProdPct, setNonProdPct] = useState(10)
+  const [calApplyNonProd, setCalApplyNonProd] = useState(true)
+
   // ── Layer toggles ──
   const [layerLabels,      setLayerLabels]      = useState(true)
   const [layerTableLabels, setLayerTableLabels] = useState(false)
@@ -74,11 +78,17 @@ export default function App() {
   const [sim,    setSim]    = useState(null)
   const [dayIdx, setDayIdx] = useState(0)
 
+  // ── Effective workers (after non-productive deduction) ──
+  const effectiveWorkers = useMemo(
+    () => Math.round(generalWorkers * (1 - Math.max(0, Math.min(100, nonProdPct)) / 100)),
+    [generalWorkers, nonProdPct]
+  )
+
   // ── Single crew ──
   const activeSubs = useMemo(() => [{
-    name: 'Crew', workers: generalWorkers,
+    name: 'Crew', workers: effectiveWorkers,
     prodMs: generalRateMs, prodPv: generalRatePv, pvOnly: false,
-  }], [generalWorkers, generalRateMs, generalRatePv])
+  }], [effectiveWorkers, generalRateMs, generalRatePv])
 
   // ── Workforce overrides: Sunday reduction + batches + per-day overrides ──
   const workforceOverrides = useMemo(() => {
@@ -96,7 +106,9 @@ export default function App() {
           .reduce((s, b) => s + b.count, 0)
         const baseTotal = generalWorkers + batchTotal
         let workers = isSunday ? Math.round(baseTotal * sundayWorkersPct / 100) : baseTotal
-        if (workers !== generalWorkers) result[`Crew|${dateStr}`] = workers
+        const nonProdFactor = calApplyNonProd ? (1 - Math.max(0, Math.min(100, nonProdPct)) / 100) : 1
+        workers = Math.round(workers * nonProdFactor)
+        if (workers !== effectiveWorkers) result[`Crew|${dateStr}`] = workers
       }
     }
     // Per-day absolute overrides replace everything
@@ -104,7 +116,7 @@ export default function App() {
       result[`Crew|${date}`] = w
     })
     return result
-  }, [generalWorkers, sundayWorkersPct, globalDeadline, generalCalOverrides, workerBatches])
+  }, [generalWorkers, effectiveWorkers, sundayWorkersPct, globalDeadline, generalCalOverrides, workerBatches, nonProdPct, calApplyNonProd])
 
   // ── tablesByZone: recomputed whenever Sheet data refreshes ──
   const tablesByZone = useMemo(
@@ -198,8 +210,8 @@ export default function App() {
     const d = new Date(TODAY)
     d.setDate(d.getDate() + dayIdx)
     const dateStr = d.toISOString().slice(0, 10)
-    return workforceOverrides[`Crew|${dateStr}`] ?? generalWorkers
-  }, [dayIdx, workforceOverrides, generalWorkers])
+    return workforceOverrides[`Crew|${dateStr}`] ?? effectiveWorkers
+  }, [dayIdx, workforceOverrides, effectiveWorkers])
 
   const fmt = (offset) => offset !== null && offset !== undefined ? fmtDate(TODAY, offset) : '—'
 
@@ -227,12 +239,12 @@ export default function App() {
       const pvCount = ZONES.reduce((s, z) => s + pvToday[z].length, 0)
       const d = new Date(startDate); d.setDate(d.getDate() + snap.day)
       const dateStr = d.toISOString().slice(0, 10)
-      const workers = workforceOverrides[`Crew|${dateStr}`] ?? generalWorkers
+      const workers = workforceOverrides[`Crew|${dateStr}`] ?? effectiveWorkers
       const msWorkers = generalRateMs > 0 ? Math.round(msCount / generalRateMs) : 0
       const pvWorkers = generalRatePv > 0 ? Math.round(pvCount / generalRatePv) : 0
       return { day: snap.day, dateStr, workers, msCount, pvCount, msWorkers, pvWorkers, msToday, pvToday }
     }).filter(d => d.msCount > 0 || d.pvCount > 0)
-  }, [sim, simReady, workforceOverrides, generalWorkers, generalRateMs, generalRatePv, tablesByZone])
+  }, [sim, simReady, workforceOverrides, effectiveWorkers, generalRateMs, generalRatePv, tablesByZone])
 
   return (
     <>
@@ -252,6 +264,9 @@ export default function App() {
         simDays={sim ? sim.snapshots.length - 1 : 0}
         today={TODAY}
         sheetStatus={sheetStatus} sheetDate={sheetDate} onRefreshSheet={loadSheetData}
+        nonProdPct={nonProdPct} setNonProdPct={setNonProdPct}
+        calApplyNonProd={calApplyNonProd} setCalApplyNonProd={setCalApplyNonProd}
+        effectiveWorkers={effectiveWorkers}
       />
 
       <div className="main-col">
