@@ -354,7 +354,7 @@ export default function LeftPanel({
           <NumInput value={generalWorkers} onChange={setGeneralWorkers} min={0} className="stat-val-input" style={{ width: 90 }} />
         </div>
         <div className="stat-row" style={{ marginTop: 2 }}>
-          <span className="stat-lbl" style={{ color: 'var(--muted)', fontSize: 11 }}>Non-productive</span>
+          <span className="stat-lbl" style={{ color: 'var(--muted)', fontSize: 11 }}>Non-productive (managers, supervisors, foremen…)</span>
           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
             <NumInput value={nonProdPct} onChange={v => setNonProdPct(Math.max(0, Math.min(100, v)))}
               min={0} max={100} className="stat-val-input" style={{ width: 90, paddingRight: 22 }} />
