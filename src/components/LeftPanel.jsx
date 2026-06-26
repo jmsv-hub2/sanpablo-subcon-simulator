@@ -112,9 +112,12 @@ function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresh
           </div>
         )
       })}
-      <div className="vre-footer">
+      <div className="vre-footer" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
         <span className="small">Drag to reorder · % = min. VRE</span>
-        <button className="reset-btn" onClick={() => setZoneThresholds({ ...VRE_DEFAULTS })}>Reset to defaults</button>
+        <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+          <button className="reset-btn" style={{ flex: 1 }} onClick={() => setZonePriority(prev => [...prev].reverse())}>↕ Reverse order</button>
+          <button className="reset-btn" style={{ flex: 1 }} onClick={() => setZoneThresholds({ ...VRE_DEFAULTS })}>Reset to min. VRE</button>
+        </div>
       </div>
     </div>
   )
