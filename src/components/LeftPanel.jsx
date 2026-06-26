@@ -117,6 +117,7 @@ function ZoneList({ zonePriority, setZonePriority, zoneThresholds, setZoneThresh
         <div style={{ display: 'flex', gap: 6, width: '100%' }}>
           <button className="reset-btn" style={{ flex: 1 }} onClick={() => setZonePriority(prev => [...prev].reverse())}>↕ Reverse order</button>
           <button className="reset-btn" style={{ flex: 1 }} onClick={() => setZoneThresholds({ ...VRE_DEFAULTS })}>Reset to min. VRE</button>
+          <button className="reset-btn" style={{ flex: 1 }} onClick={() => setZoneThresholds(Object.fromEntries(Object.keys(VRE_DEFAULTS).map(z => [z, 100])))}>All VRE 100%</button>
         </div>
       </div>
     </div>
