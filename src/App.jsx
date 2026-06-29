@@ -10,6 +10,7 @@ import MapCanvas from './components/MapCanvas.jsx'
 import Legend from './components/Legend.jsx'
 import BottomStats from './components/BottomStats.jsx'
 import PlanTab from './components/PlanTab.jsx'
+import SaveLoad from './components/SaveLoad.jsx'
 
 const TODAY = new Date().toISOString().slice(0, 10)
 function defaultDeadline() {
@@ -246,6 +247,30 @@ export default function App() {
     }).filter(d => d.msCount > 0 || d.pvCount > 0)
   }, [sim, simReady, workforceOverrides, effectiveWorkers, generalRateMs, generalRatePv, tablesByZone])
 
+  // ── Save / Open simulation parameters (input config only — Sheet data stays live) ──
+  const getConfig = useCallback(() => ({
+    version: 1,
+    generalWorkers, generalRateMs, generalRatePv, sundayWorkersPct,
+    nonProdPct, calApplyNonProd,
+    workerBatches, zonePriority, zoneThresholds, targetPct, generalCalOverrides,
+  }), [generalWorkers, generalRateMs, generalRatePv, sundayWorkersPct, nonProdPct,
+       calApplyNonProd, workerBatches, zonePriority, zoneThresholds, targetPct, generalCalOverrides])
+
+  const applyConfig = useCallback(cfg => {
+    if (!cfg || typeof cfg !== 'object') return
+    if (cfg.generalWorkers      != null) setGeneralWorkers(cfg.generalWorkers)
+    if (cfg.generalRateMs       != null) setGeneralRateMs(cfg.generalRateMs)
+    if (cfg.generalRatePv       != null) setGeneralRatePv(cfg.generalRatePv)
+    if (cfg.sundayWorkersPct    != null) setSundayWorkersPct(cfg.sundayWorkersPct)
+    if (cfg.nonProdPct          != null) setNonProdPct(cfg.nonProdPct)
+    if (cfg.calApplyNonProd     != null) setCalApplyNonProd(cfg.calApplyNonProd)
+    if (Array.isArray(cfg.workerBatches)) setWorkerBatches(cfg.workerBatches)
+    if (Array.isArray(cfg.zonePriority) && cfg.zonePriority.length === ZONES.length) setZonePriority(cfg.zonePriority)
+    if (cfg.zoneThresholds && typeof cfg.zoneThresholds === 'object') setZoneThresholds(cfg.zoneThresholds)
+    if (cfg.targetPct           != null) setTargetPct(cfg.targetPct)
+    if (cfg.generalCalOverrides && typeof cfg.generalCalOverrides === 'object') setGeneralCalOverrides(cfg.generalCalOverrides)
+  }, [])
+
   return (
     <>
       <LeftPanel
@@ -267,6 +292,7 @@ export default function App() {
         nonProdPct={nonProdPct} setNonProdPct={setNonProdPct}
         calApplyNonProd={calApplyNonProd} setCalApplyNonProd={setCalApplyNonProd}
         effectiveWorkers={effectiveWorkers}
+        getConfig={getConfig} applyConfig={applyConfig}
       />
 
       <div className="main-col">

@@ -103,6 +103,10 @@ canvas:active { cursor: grabbing; }
 .ss-refresh { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 2px; line-height: 1; }
 .ss-refresh:hover { color: var(--text); }
 
+.saveload { display: flex; gap: 4px; margin-left: auto; }
+.sl-btn { background: var(--panel2); border: 1px solid var(--line); color: var(--muted); border-radius: 4px; padding: 3px 7px; font-size: 9px; font-weight: 600; cursor: pointer; }
+.sl-btn:hover { color: var(--text); border-color: var(--accent); }
+
 /* ── Target / completion card ────────────────────────────────────────────── */
 .tc-card { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
 .tc-top { display: flex; align-items: center; padding: 12px 14px; gap: 0; }

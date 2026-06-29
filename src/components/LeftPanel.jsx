@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ZONES, TOTAL_TABLES, TOTAL_MWP, TOTAL_BY_ZONE } from '../data.js'
+import SaveLoad from './SaveLoad.jsx'
 
 const MWP_PER_TABLE = TOTAL_MWP / TOTAL_TABLES
 
@@ -326,6 +327,7 @@ export default function LeftPanel({
   nonProdPct, setNonProdPct,
   calApplyNonProd, setCalApplyNonProd,
   effectiveWorkers,
+  getConfig, applyConfig,
 }) {
   const tPct         = Math.max(1, Math.min(100, targetPct))
   const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
@@ -347,6 +349,7 @@ export default function LeftPanel({
         {sheetStatus !== 'loading' && (
           <button className="ss-refresh" onClick={onRefreshSheet} title="Refresh from tracker">↻</button>
         )}
+        <SaveLoad getConfig={getConfig} applyConfig={applyConfig} />
       </div>
 
       {/* ── Manpower & productivity ─────────────────────── */}
