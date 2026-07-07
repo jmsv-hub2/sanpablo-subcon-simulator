@@ -159,20 +159,27 @@ export default function App() {
   const stats = useMemo(() => {
     if (!simReady || !derived || !snap) return null
 
-    // Work still needed globally to reach targetPct% of the total park
+    // Work still needed to reach targetPct% of the park AND each MVPS's own VRE minimum.
+    // Per-zone deficits are summed (overshoot in a satisfied zone can't be moved to a
+    // deficit zone), matching what the engine actually schedules; then a global top-up is
+    // added if the per-zone minimums don't by themselves reach the park-wide target%.
     const tPct         = Math.max(1, Math.min(100, targetPct))
     const targetTables = Math.ceil(TOTAL_TABLES * tPct / 100)
 
-    let pvDoneGlobal = 0, pvAGlobal = 0
+    let msDoneGlobal = 0, pvDoneGlobal = 0, msDeficit = 0, pvDeficit = 0
     ZONES.forEach(z => {
       const r = snap.remaining[z]
-      const total_z = tablesByZone[z].length
-      pvDoneGlobal += total_z - r.ms - r.pvA - r.pvB - (r.pvPending || 0)
-      pvAGlobal    += r.pvA
+      const total_z  = tablesByZone[z].length
+      const msDone_z = total_z - r.ms
+      const pvDone_z = total_z - r.ms - r.pvA - r.pvB - (r.pvPending || 0)
+      const target_z = Math.ceil(total_z * (zoneThresholds[z] ?? 100) / 100)
+      msDoneGlobal += msDone_z
+      pvDoneGlobal += pvDone_z
+      msDeficit    += Math.max(0, target_z - msDone_z)
+      pvDeficit    += Math.max(0, target_z - pvDone_z)
     })
-    const pvGap   = Math.max(0, targetTables - pvDoneGlobal)
-    const totalPv = pvGap
-    const totalMs = Math.max(0, pvGap - pvAGlobal)
+    const totalPv = pvDeficit + Math.max(0, targetTables - (pvDoneGlobal + pvDeficit))
+    const totalMs = msDeficit + Math.max(0, targetTables - (msDoneGlobal + msDeficit))
 
     const pvDoneCount  = tables.filter(t => derived.phase[t.id] >= 5).length
     const completedMwp = pvDoneCount * MWP_PER_TABLE
