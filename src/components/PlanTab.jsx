@@ -203,22 +203,22 @@ export default function PlanTab({ planData, zones, today }) {
       {/* Header */}
       <div className="plan-header">
         <div className="plan-summary">
-          <div className="plan-stat">
+          <div className="plan-stat" title="Days with actual work. Idle days (e.g. Sundays with 0 crew) are excluded, so the calendar span to the last day may be longer.">
             <span className="plan-stat-val">{planData.length}</span>
             <span className="plan-stat-lbl">active days</span>
           </div>
           <div className="plan-stat-div" />
-          <div className="plan-stat">
+          <div className="plan-stat" title="Total MS tables this schedule processes. Can exceed 'MS remaining' because it also satisfies each zone's VRE threshold and works in whole-day chunks.">
             <span className="plan-stat-val" style={{ color: 'var(--warn)' }}>{totalMs.toLocaleString()}</span>
-            <span className="plan-stat-lbl">MS tables</span>
+            <span className="plan-stat-lbl">MS scheduled</span>
           </div>
           <div className="plan-stat-div" />
-          <div className="plan-stat">
+          <div className="plan-stat" title="Total PV tables this schedule processes. Can slightly exceed 'PV remaining' because the final day overshoots the target.">
             <span className="plan-stat-val" style={{ color: 'var(--accent)' }}>{totalPv.toLocaleString()}</span>
-            <span className="plan-stat-lbl">PV tables</span>
+            <span className="plan-stat-lbl">PV scheduled</span>
           </div>
           <div className="plan-stat-div" />
-          <div className="plan-stat">
+          <div className="plan-stat" title="Last calendar day of the plan (including any idle days before it).">
             <span className="plan-stat-val" style={{ color: 'var(--ok)' }}>{fmtDisplayDate(planData[planData.length - 1]?.dateStr ?? today)}</span>
             <span className="plan-stat-lbl">last day</span>
           </div>

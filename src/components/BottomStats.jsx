@@ -58,7 +58,7 @@ function ZoneMatrix({ snap, sim, zonePriority, zoneThresholds, dayIdx, fmt }) {
                 </div>
                 <div className="zc-pct">{pct.toFixed(0)}% · {doneMwp}/{totalMwp} MW</div>
                 {r && (
-                  <div className="zc-stats">
+                  <div className="zc-stats" title="Remaining in this zone at the viewed day — MS: tables not yet mounted · PV: mounted tables still without panels.">
                     <span>MS {r.ms.toFixed(0)}</span>
                     <span>PV {(r.pvA + r.pvB + (r.pvPending || 0)).toFixed(0)}</span>
                     {satDay !== undefined && <span style={{ color: 'var(--ok)' }}>✓ {fmt(satDay)}</span>}
@@ -96,9 +96,9 @@ export default function BottomStats({ sim, stats, snap, fmt, zonePriority, zoneT
             <div className="gstat-div" />
             <div className="gstat"><div className="gstat-val">{dailyThroughput?.pv.toFixed(0) ?? '—'}</div><div className="gstat-lbl">PV/day</div></div>
             <div className="gstat-div" />
-            <div className="gstat"><div className="gstat-val">{stats.totalMs.toFixed(0)}</div><div className="gstat-lbl">MS remaining</div></div>
+            <div className="gstat" title="Minimum MS tables still needed to reach the target %. The MSPV plan may schedule more (see 'MS scheduled')."><div className="gstat-val">{stats.totalMs.toFixed(0)}</div><div className="gstat-lbl">MS remaining</div></div>
             <div className="gstat-div" />
-            <div className="gstat"><div className="gstat-val">{stats.totalPv.toFixed(0)}</div><div className="gstat-lbl">PV remaining</div></div>
+            <div className="gstat" title="Minimum PV tables still needed to reach the target %. The MSPV plan may schedule slightly more (see 'PV scheduled')."><div className="gstat-val">{stats.totalPv.toFixed(0)}</div><div className="gstat-lbl">PV remaining</div></div>
             <div className="gstat-div" />
             <div className="gstat"><div className="gstat-val">{fmt(stats.targetDay)}</div><div className="gstat-lbl">Target {stats.tPct}%</div></div>
           </>

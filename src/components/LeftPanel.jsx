@@ -330,7 +330,7 @@ export default function LeftPanel({
   getConfig, applyConfig,
 }) {
   const tPct         = Math.max(1, Math.min(100, targetPct))
-  const targetTables = Math.round(TOTAL_TABLES * tPct / 100)
+  const targetTables = Math.ceil(TOTAL_TABLES * tPct / 100)
   const targetMwp    = (targetTables * TOTAL_MWP / TOTAL_TABLES).toFixed(2)
   const statusColor  = stats?.targetStatus === 'ok' ? 'var(--ok)' : stats?.targetStatus === 'bad' ? 'var(--bad)' : 'var(--accent)'
   const msCapacity   = Math.round(effectiveWorkers * generalRateMs)
