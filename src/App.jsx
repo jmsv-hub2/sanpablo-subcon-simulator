@@ -25,9 +25,9 @@ export function fmtDate(startDate, dayOffset) {
 export default function App() {
   // ── General manpower inputs ──
   const [generalWorkers,    setGeneralWorkers]    = useState(250)
-  const [generalRateMs,     setGeneralRateMs]     = useState(0.5)
-  const [generalRatePv,     setGeneralRatePv]     = useState(0.4)
-  const [sundayWorkersPct,  setSundayWorkersPct]  = useState(0)
+  const [generalRateMs,     setGeneralRateMs]     = useState(0.25)
+  const [generalRatePv,     setGeneralRatePv]     = useState(0.25)
+  const [sundayWorkersPct,  setSundayWorkersPct]  = useState(10)
 
   // ── Worker batches (additive from a start date) ──
   const [workerBatches, setWorkerBatches] = useState([])
@@ -47,7 +47,7 @@ export default function App() {
   const [generalCalOverrides, setGeneralCalOverrides] = useState({})
 
   // ── Non-productive workers ──
-  const [nonProdPct, setNonProdPct] = useState(10)
+  const [nonProdPct, setNonProdPct] = useState(30)
   const [calApplyNonProd, setCalApplyNonProd] = useState(true)
 
   // ── Layer toggles ──
